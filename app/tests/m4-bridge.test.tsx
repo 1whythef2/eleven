@@ -73,11 +73,18 @@ test("M4: the agent's edits are logged under its name, and its patches wait for 
   expect(loadProject(LS_ID).patches).toEqual([{ addr: "0x1000016d8", bytes: "c0 03 5f d6" }]);
 }, 60_000);
 
-test("M9: the agent sets breakpoints in the project, and can only drive a session the user started", async () => {
+test("M9: the agent sets breakpoints in the project, and needs a session to drive", async () => {
   expect(await call("set_breakpoint", { address: "0x1000016d8", on: true })).toContain("Added a breakpoint at 0x1000016d8");
   expect(loadProject(LS_ID).breakpoints.get("0x1000016d8")).toBe("on");
-  expect(await call("debug_state")).toContain("Ask the user to press Debug");
-  await expect(call("debug_control", { action: "continue" })).rejects.toThrow("only they can start the program");
+  expect(await call("debug_state")).toContain("Start one with debug_start");
+  await expect(call("debug_control", { action: "continue" })).rejects.toThrow("Start one with debug_start");
   expect(await call("set_breakpoint", { address: "0x1000016d8", on: false })).toContain("Removed");
   expect(loadProject(LS_ID).breakpoints.has("0x1000016d8")).toBe(false);
 }, 60_000);
+
+test("M9: the agent's debug_start opens the workbench and debug view, and explains a protected program", async () => {
+  const report = await call("debug_start", { pid: "" });
+  expect(report).toContain("macOS won't let the debugger run this program");
+  await screen.until(() => screen.text().includes("Try again"), 30_000);
+  await expect(call("debug_start", { pid: "nope" })).rejects.toThrow("Give a process id");
+}, 90_000);

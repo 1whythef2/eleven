@@ -36,7 +36,7 @@ const TOOL_KIND: Readonly<Record<string, PermissionTool>> = {
   open_function: "view", current_view: "view", set_view: "view", list_marks: "view",
   rename_function: "rename", add_note: "notes", add_comment: "notes", bookmark: "notes", set_code_type: "notes", set_number_format: "notes",
   propose_patch: "patch", gpu_profile: "gpu",
-  debug_state: "view", debug_control: "debug", debug_evaluate: "debug", set_breakpoint: "debug",
+  debug_start: "debug", debug_state: "view", debug_control: "debug", debug_evaluate: "debug", set_breakpoint: "debug",
 };
 
 /** Which row of the Permissions page governs a tool call. */

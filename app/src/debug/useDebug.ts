@@ -42,6 +42,10 @@ export type Debug = {
   /** Replaces the breakpoints of the running session, if there is one. */
   readonly syncBreakpoints: (breakAt: readonly string[]) => void;
   readonly loadVars: (reference: number) => Promise<readonly Variable[]>;
+  /** Resolves when the session next stops, exits or fails, or after a while if it keeps running. */
+  readonly settle: () => Promise<void>;
+  /** The session as an agent reads it. */
+  readonly describe: () => Promise<string>;
 };
 
 function stoppedReason(body: unknown): string {
@@ -68,6 +72,12 @@ function exitCode(body: unknown): number | null {
   return isRecord(body) && typeof body.exitCode === "number" ? body.exitCode : null;
 }
 
+function startProblem(err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err);
+  if (/permission denied|not allowed|operation not permitted/i.test(message)) return "macOS won't let the debugger run this program. System programs and apps with hardened runtime are protected. Try a copy you built, or one re-signed without hardened runtime.";
+  return message;
+}
+
 const SETTLE_MS = 15_000;
 
 function shown(vars: readonly Variable[], limit: number): string {
@@ -80,7 +90,7 @@ export function describeSession(status: DebugStatus, output: readonly OutputLine
   const tail = recent ? `\n\nOutput:\n${recent}` : "";
   switch (status.kind) {
     case "idle":
-      return "No debug session. Ask the user to start one with Debug in the workbench.";
+      return "No debug session. Start one with debug_start.";
     case "starting":
       return "The debugger is starting.";
     case "running":
@@ -175,13 +185,13 @@ export function useDebug(): Debug {
         const initialized = dap.once("initialized");
         await dap.initialize();
         const started = startRequest(dap);
-        await initialized;
+        await Promise.race([initialized, started.then(() => initialized)]);
         await sendBreakpoints(dap, breakAt);
         await dap.configurationDone();
         await started;
         if (client.current === dap) set({ kind: "running" });
       } catch (err) {
-        if (client.current === dap) set({ kind: "error", message: err instanceof Error ? err.message : String(err) });
+        if (client.current === dap) set({ kind: "error", message: startProblem(err) });
       }
     })();
   };
@@ -301,5 +311,5 @@ export function useDebug(): Debug {
     return () => claimDebug(null);
   }, []);
 
-  return { status, output, launch, attach, cont: () => step("cont"), stepOver: () => step("over"), stepIn: () => step("in"), stepOut: () => step("out"), stepInstruction: () => step("instr"), stop, pause, restart, evaluate, retry, syncBreakpoints, loadVars };
+  return { status, output, launch, attach, cont: () => step("cont"), stepOver: () => step("over"), stepIn: () => step("in"), stepOut: () => step("out"), stepInstruction: () => step("instr"), stop, pause, restart, evaluate, retry, syncBreakpoints, loadVars, settle, describe };
 }

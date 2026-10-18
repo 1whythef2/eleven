@@ -1,7 +1,7 @@
 import { basename } from "node:path";
 
 import { bundleExecutable } from "../gpu/live";
-import { DEBUG_ACTIONS, debugControl, isDebugAction } from "../debug/live";
+import { DEBUG_ACTIONS, debugControl, isDebugAction, startDebugging } from "../debug/live";
 import { describeFindings, listRuns, readGpuRun } from "../gpu/trace";
 import type { Chat } from "../chat/useChat";
 import { loadProcedures, type Procedure } from "../engine/procedures";
@@ -16,7 +16,7 @@ import { parseBytes } from "../workbench/patch";
 import type { BridgeCaller, BridgeTool } from "./protocol";
 import { currentView, switchView, type ViewName } from "./view";
 
-const NO_SESSION = "There is no debug session. Ask the user to press Debug in the workbench; only they can start the program.";
+const NO_SESSION = "There is no debug session. Start one with debug_start.";
 
 const VIEWS: readonly ViewName[] = ["pseudocode", "assembly", "graph", "hex"];
 
@@ -127,6 +127,12 @@ export function bridgeHandler(chat: () => Chat): (tool: BridgeTool, args: Readon
         const trace = exe ? listRuns(basename(exe))[0] : undefined;
         if (!trace) return "There's no GPU recording of this app yet. Ask the user to press Record a GPU run in the workbench sidebar.";
         return describeFindings((await readGpuRun(trace, "")).findings);
+      }
+      case "debug_start": {
+        const wanted = (args.pid ?? "").trim();
+        const pid = wanted ? Number(wanted) : null;
+        if (pid !== null && !(Number.isInteger(pid) && pid > 0)) throw new Error("Give a process id, like 48213, or leave it empty to launch the open file.");
+        return startDebugging(pid);
       }
       case "debug_state":
         return (await debugControl()?.describe()) ?? NO_SESSION;

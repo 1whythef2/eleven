@@ -88,11 +88,15 @@ export async function runMcp(): Promise<void> {
   server.registerTool("gpu_profile", {
     description: "The newest GPU recording of the open app (Metal System Trace): frame time, how busy the GPU is, gaps between frames, and what the numbers suggest fixing.",
   }, () => run("gpu_profile", {}));
+  server.registerTool("debug_start", {
+    description: "Run the open file under the debugger in the user's Eleven window, or attach to a running process by pid. It stops at the user's breakpoints (add your own with set_breakpoint first). Returns where it first stops, or that it is still running. This runs the program on the user's machine.",
+    inputSchema: { pid: z.string().describe("A process id to attach to, or empty to launch the open file") },
+  }, ({ pid }) => run("debug_start", { pid }));
   server.registerTool("debug_state", {
     description: "The user's debug session in Eleven: whether the program is running or paused, where it is paused, the call stack, locals, registers and the newest program output.",
   }, () => run("debug_state", {}));
   server.registerTool("debug_control", {
-    description: "Continue, pause or step the program in the user's debug session, then report where it is. Only works on a session the user started; you can't launch programs.",
+    description: "Continue, pause or step the program in the user's debug session, then report where it is. Start a session with debug_start first.",
     inputSchema: { action: z.enum(["continue", "pause", "step_over", "step_into", "step_out", "step_instruction"]) },
   }, ({ action }) => run("debug_control", { action }));
   server.registerTool("debug_evaluate", {

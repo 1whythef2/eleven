@@ -20,6 +20,6 @@ test("M9: a paused session reads as where it stopped, the stack, locals, registe
 });
 
 test("M9: with no session the agent is told to ask the user", () => {
-  expect(describeSession({ kind: "idle" }, [], [])).toContain("Ask the user to start one");
+  expect(describeSession({ kind: "idle" }, [], [])).toContain("Start one with debug_start");
   expect(describeSession({ kind: "exited", code: 3 }, [{ kind: "program", text: "bye" }], [])).toContain("exited with code 3.\n\nOutput:\nbye");
 });

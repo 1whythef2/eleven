@@ -1,10 +1,11 @@
 import { useCommand } from "../lib/shortcuts";
-import { type ReactElement, useEffect, useState } from "react";
+import { type ReactElement, useEffect, useRef, useState } from "react";
 
 import { useTheme } from "../theme";
 import { type Debug, useDebug, type DebugStatus, type LoadedScope, type OutputLine } from "../debug/useDebug";
 import type { StackFrame, Thread, Variable } from "../debug/dap";
 import { ask } from "./actions";
+import { claimDebugStart } from "../debug/live";
 import { TYPING } from "../lib/shortcuts";
 import { useSettings } from "../settings/store";
 import { Dot } from "../components/ui";
@@ -273,6 +274,20 @@ export function DebugView(): ReactElement {
   useEffect(() => wb.patch({ debugPc: pc }), [pc]);
   useEffect(() => () => wb.patch({ debugPc: null }), []);
   const start = (): void => debug.launch(program.path, breakAt);
+  const latest = useRef(breakAt);
+  latest.current = breakAt;
+  useEffect(() => {
+    claimDebugStart(async (id) => {
+      const kind = debug.status.kind;
+      if (kind === "running" || kind === "stopped" || kind === "starting") return `A session is already open.\n\n${await debug.describe()}`;
+      const stopped = debug.settle();
+      if (id === null) debug.launch(program.path, latest.current);
+      else debug.attach(id, latest.current);
+      await stopped;
+      return debug.describe();
+    });
+    return () => claimDebugStart(null);
+  }, [debug.status.kind, program.path]);
   const attach = (): void => {
     const id = Number(pid.trim());
     if (Number.isInteger(id) && id > 0) debug.attach(id, breakAt);

@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 
 import { claimViewSwitch, reportView, type ViewName } from "../bridge/view";
+import { claimDebugOpen } from "../debug/live";
 import { loadProject, onProjectChange } from "../engine/project";
 import type { CodeMode, Program, Tab } from "./model";
 import type { Workbench } from "./state";
@@ -26,4 +27,8 @@ export function useAgentView(program: Program, wb: Workbench, tab: Tab | undefin
     });
     return () => claimViewSwitch(null);
   }, [wb.s.focus]);
+  useEffect(() => {
+    claimDebugOpen(() => wb.reveal("debug"));
+    return () => claimDebugOpen(null);
+  }, []);
 }

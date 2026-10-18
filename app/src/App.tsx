@@ -2,6 +2,7 @@ import { useGpuix } from "@gpuix/react";
 import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
 
 import { useLiveChat } from "./bridge/live";
+import { claimWorkbenchOpen } from "./debug/live";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Home } from "./home/Home";
 import { type Chat, useChat } from "./chat/useChat";
@@ -118,6 +119,14 @@ export function App({ initial }: { readonly initial: Target | null }): ReactElem
     shown.current = key;
     setScreen({ kind: "workbench", target });
   }, [target?.path, chatting, chat.thread.id, openWorkbench]);
+  useEffect(() => {
+    claimWorkbenchOpen(() => {
+      if (!target || (here.current.kind !== "home" && here.current.kind !== "workbench")) return false;
+      setScreen({ kind: "workbench", target });
+      return true;
+    });
+    return () => claimWorkbenchOpen(null);
+  }, [target?.path]);
   useCommand("open", chat.openFile);
   useCommand("thread", () => {
     chat.thread.reset();
