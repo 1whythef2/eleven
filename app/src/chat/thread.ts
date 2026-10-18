@@ -96,6 +96,11 @@ export const EMPTY_THREAD: ThreadState = {
   opened: 0,
 };
 
+/** Agents read a slash command only when it starts the prompt, so nothing goes before it. */
+export function isCommand(text: string): boolean {
+  return /^\/[a-z][\w-]*(\s|$)/i.test(text.trimStart());
+}
+
 export function isBusy(state: ThreadState): boolean {
   return state.agent.kind === "working";
 }
