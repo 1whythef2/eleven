@@ -5,6 +5,7 @@ import { useEffect, useReducer, useRef, useState } from "react";
 import type { NativeCommand } from "../agents/detect";
 import type { Attachment } from "../agents/attachments";
 import type { AgentEvent, PermissionChoice, SessionOption } from "../agents/events";
+import { type GoalControl, goalControl } from "../agents/goals";
 import type { AgentEntry } from "../agents/registry";
 import { rememberPick, savedPicks } from "../agents/picks";
 import { AgentSession } from "../agents/session";
@@ -20,7 +21,8 @@ import { androidHint, engineHint } from "../analysis/hint";
 import { activeBackend } from "../analysis/engines";
 import { prepareTarget, type Target } from "../engine/target";
 import { type SavedThread, saveThread } from "./history";
-import { agentName, type Draft, EMPTY_THREAD, isBusy, type Message, threadReducer, type ThreadState } from "./thread";
+import { agentName, type Draft, EMPTY_THREAD, isBusy, isCommand, type Message, threadReducer, type ThreadState } from "./thread";
+import { useStreamBuffer } from "./streamBuffer";
 import { useChatMoments } from "../notify/useChatMoments";
 import { shownText } from "../skills/load";
 import { copyToClipboard, THIS_DEVICE } from "../lib/platform";
@@ -179,9 +181,11 @@ export function useThread(agent: AgentEntry, native: NativeCommand | null, targe
     }
   };
 
+  const stream = useStreamBuffer((event, at) => dispatch({ type: "event", event, at }));
+
   const onEvent = (event: AgentEvent): void => {
     moments.heard(event);
-    dispatch({ type: "event", event, at: Date.now() });
+    stream.push(event);
     const path = openedPath(event, tools.current);
     if (path) adopt(path);
   };
@@ -196,6 +200,7 @@ export function useThread(agent: AgentEntry, native: NativeCommand | null, targe
   };
 
   const stopSession = (): void => {
+    stream.flush();
     session.current?.stop();
     session.current = null;
     prompted.current = false;
@@ -256,8 +261,9 @@ export function useThread(agent: AgentEntry, native: NativeCommand | null, targe
   const deliver = (draft: Draft): void => {
     const live = ensureSession();
     if (target && (target.kind === "binary" || target.kind === "app") && !prompted.current) void openEntry(target);
-    const prompt = prompted.current ? draft.text : firstPrompt(target, state.messages, draft.text);
-    prompted.current = true;
+    const command = isCommand(draft.text);
+    const prompt = prompted.current || command ? draft.text : firstPrompt(target, state.messages, draft.text);
+    if (!command) prompted.current = true;
     dispatch({ type: "sent", draft, at: Date.now() });
     void live.prompt(prompt, draft.attachments);
   };
@@ -269,9 +275,20 @@ export function useThread(agent: AgentEntry, native: NativeCommand | null, targe
     deliver(next);
   }, [state.queue, state.agent.kind]);
 
+  const controlGoal = async (live: AgentSession, action: GoalControl): Promise<void> => {
+    try {
+      await live.controlGoal(action);
+      dispatch({ type: "note", text: action === "pause" ? "Goal paused." : "Goal cleared.", tone: "info" });
+    } catch (err) {
+      dispatch({ type: "note", text: `Couldn't ${action} the goal: ${errorMessage(err)}`, tone: "error" });
+    }
+  };
+
   const send = (text: string, attachments: readonly Attachment[] = []): void => {
     const clean = text.trim();
     if (!clean) return;
+    const control = goalControl(agent.id, clean);
+    if (control && session.current && isBusy(state)) return void controlGoal(session.current, control);
     const draft: Draft = { text: clean, attachments };
     if (isBusy(state)) return dispatch({ type: "queued", draft });
     deliver(draft);

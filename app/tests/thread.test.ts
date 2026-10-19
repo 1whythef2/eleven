@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import type { SessionOption } from "../src/agents/events";
 import { translate } from "../src/agents/translate";
 import { sourcesOf } from "../src/chat/Sources";
-import { type Block, EMPTY_THREAD, threadReducer } from "../src/chat/thread";
+import { type Block, EMPTY_THREAD, isCommand, threadReducer } from "../src/chat/thread";
 
 const text = (value: string): Block => ({ kind: "text", text: value });
 
@@ -79,4 +79,14 @@ test("thread: what you attach travels with the message, and waits in the queue w
   expect(plain.messages[0]).toEqual({ kind: "user", text: "Hi", at: 5 });
   const queued = threadReducer(sent, { type: "queued", draft: { text: "And this", attachments: [shot] } });
   expect(queued.queue).toEqual([{ text: "And this", attachments: [shot] }]);
+});
+
+test("slash commands: only text that starts with / is a command", () => {
+  expect(isCommand("/goal find the license check")).toBe(true);
+  expect(isCommand("  /compact")).toBe(true);
+  expect(isCommand("what does /usr/lib hold?")).toBe(false);
+  expect(isCommand("@main /goal")).toBe(false);
+  expect(isCommand("/usr/lib/libswiftCore.dylib, what does this do?")).toBe(false);
+  expect(isCommand("/ what")).toBe(false);
+  expect(isCommand("/goal")).toBe(true);
 });
