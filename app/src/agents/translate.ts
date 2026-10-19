@@ -3,7 +3,7 @@ import type * as acp from "@agentclientprotocol/sdk";
 import { isRecord, stringField } from "../lib/guards";
 import type { AgentEvent, OptionCategory, OptionChoice, PlanItem, SessionOption, StepStatus } from "./events";
 
-const MAX_OUTPUT = 4000;
+const MAX_OUTPUT = 60_000;
 
 export function stepStatus(status: acp.ToolCallStatus | null | undefined): StepStatus {
   if (status === "completed") return "done";
@@ -69,9 +69,9 @@ export function translate(update: acp.SessionNotification["update"], currentMode
     case "agent_thought_chunk":
       return update.content.type === "text" ? { kind: "thought", text: update.content.text } : null;
     case "tool_call":
-      return { kind: "step", id: update.toolCallId, tool: update.title, status: stepStatus(update.status), input: update.rawInput, output: contentText(update.content) };
+      return { kind: "step", id: update.toolCallId, tool: update.title, toolKind: update.kind ?? null, status: stepStatus(update.status), input: update.rawInput, output: contentText(update.content) };
     case "tool_call_update":
-      return { kind: "step", id: update.toolCallId, tool: update.title ?? "", status: stepStatus(update.status), input: update.rawInput, output: contentText(update.content) ?? rawOutputText(update.rawOutput) };
+      return { kind: "step", id: update.toolCallId, tool: update.title ?? "", toolKind: update.kind ?? null, status: stepStatus(update.status), input: update.rawInput, output: contentText(update.content) ?? rawOutputText(update.rawOutput) };
     case "plan":
       return { kind: "plan", items: plan(update.entries) };
     case "available_commands_update":

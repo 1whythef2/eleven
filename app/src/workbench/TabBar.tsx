@@ -41,6 +41,8 @@ function useLook(tab: Tab): Look {
       return { title: tab.file.split("/").pop() ?? tab.file, icon: "source", iconColor: null };
     case "resource":
       return { title: tab.file.split("/").pop() ?? tab.file, icon: tab.file.endsWith(".so") ? "library" : "source", iconColor: null };
+    case "text":
+      return { title: tab.title, icon: "text", iconColor: null };
     case "tool":
       return { title: TOOL_LABEL[tab.tool], icon: TOOL_ICON[tab.tool], iconColor: null };
     default: {

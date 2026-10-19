@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import { useEffect, useReducer, useRef, useState } from "react";
 
 import type { NativeCommand } from "../agents/detect";
+import type { Attachment } from "../agents/attachments";
 import type { AgentEvent, PermissionChoice, SessionOption } from "../agents/events";
 import type { AgentEntry } from "../agents/registry";
 import { rememberPick, savedPicks } from "../agents/picks";
@@ -19,7 +20,7 @@ import { androidHint, engineHint } from "../analysis/hint";
 import { activeBackend } from "../analysis/engines";
 import { prepareTarget, type Target } from "../engine/target";
 import { type SavedThread, saveThread } from "./history";
-import { agentName, EMPTY_THREAD, isBusy, type Message, threadReducer, type ThreadState } from "./thread";
+import { agentName, type Draft, EMPTY_THREAD, isBusy, type Message, threadReducer, type ThreadState } from "./thread";
 import { useChatMoments } from "../notify/useChatMoments";
 import { shownText } from "../skills/load";
 import { copyToClipboard, THIS_DEVICE } from "../lib/platform";
@@ -28,7 +29,7 @@ export type Thread = {
   readonly id: string;
   readonly state: ThreadState;
   readonly busy: boolean;
-  readonly send: (text: string) => void;
+  readonly send: (text: string, attachments?: readonly Attachment[]) => void;
   readonly stop: () => void;
   readonly unqueue: (index: number) => void;
   readonly retry: () => void;
@@ -39,6 +40,7 @@ export type Thread = {
   readonly selectTab: (index: number) => void;
   readonly closeCanvas: () => void;
   readonly openFunction: (procedure: string) => void;
+  readonly openText: (title: string, text: string) => void;
   readonly note: (text: string) => void;
 };
 
@@ -251,13 +253,13 @@ export function useThread(agent: AgentEntry, native: NativeCommand | null, targe
     }
   };
 
-  const deliver = (text: string): void => {
+  const deliver = (draft: Draft): void => {
     const live = ensureSession();
     if (target && (target.kind === "binary" || target.kind === "app") && !prompted.current) void openEntry(target);
-    const prompt = prompted.current ? text : firstPrompt(target, state.messages, text);
+    const prompt = prompted.current ? draft.text : firstPrompt(target, state.messages, draft.text);
     prompted.current = true;
-    dispatch({ type: "sent", text, at: Date.now() });
-    void live.prompt(prompt);
+    dispatch({ type: "sent", draft, at: Date.now() });
+    void live.prompt(prompt, draft.attachments);
   };
 
   useEffect(() => {
@@ -267,11 +269,12 @@ export function useThread(agent: AgentEntry, native: NativeCommand | null, targe
     deliver(next);
   }, [state.queue, state.agent.kind]);
 
-  const send = (text: string): void => {
+  const send = (text: string, attachments: readonly Attachment[] = []): void => {
     const clean = text.trim();
     if (!clean) return;
-    if (isBusy(state)) return dispatch({ type: "queued", text: clean });
-    deliver(clean);
+    const draft: Draft = { text: clean, attachments };
+    if (isBusy(state)) return dispatch({ type: "queued", draft });
+    deliver(draft);
   };
 
   const answer = (index: number, permissionId: number, choice: PermissionChoice | null): void => {
@@ -281,10 +284,10 @@ export function useThread(agent: AgentEntry, native: NativeCommand | null, targe
   };
   const moments = useChatMoments(state, { id, live, project: target?.name ?? null, agent: agentName(state.agent) ?? agent.name, answer });
 
-  const lastUserText = (): string | null => {
+  const lastUser = (): Draft | null => {
     const users = state.messages.filter((m) => m.kind === "user");
     const last = users[users.length - 1];
-    return last?.kind === "user" ? last.text : null;
+    return last?.kind === "user" ? { text: last.text, attachments: last.attachments ?? [] } : null;
   };
 
   return {
@@ -295,8 +298,8 @@ export function useThread(agent: AgentEntry, native: NativeCommand | null, targe
     stop: () => void session.current?.cancel(),
     unqueue: (index) => dispatch({ type: "unqueued", index }),
     retry: () => {
-      const text = lastUserText();
-      if (text) send(text);
+      const last = lastUser();
+      if (last) send(last.text, last.attachments);
     },
     answer,
     setOption: (option, value) => {
@@ -320,6 +323,7 @@ export function useThread(agent: AgentEntry, native: NativeCommand | null, targe
     selectTab: (index) => dispatch({ type: "selectTab", index }),
     closeCanvas: () => dispatch({ type: "closeCanvas" }),
     openFunction: (procedure) => dispatch({ type: "openTab", procedure }),
+    openText: (title, text) => dispatch({ type: "openText", title, text }),
     note: (text) => dispatch({ type: "note", text, tone: "info" }),
   };
 }

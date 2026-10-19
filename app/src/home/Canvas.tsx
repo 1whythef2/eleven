@@ -5,20 +5,21 @@ import { type MenuEntry, menuOn } from "../components/ContextMenu";
 import type { Target } from "../engine/target";
 import { MONO, useTheme } from "../theme";
 import { Icon, Row, Spacer } from "../components/ui";
-import type { CanvasTab, CodeState } from "../chat/thread";
+import type { CanvasTab } from "../chat/thread";
 import { copyText } from "../chat/useThread";
 
 function TabButton({ tab, active, onSelect, menu }: { readonly tab: CanvasTab; readonly active: boolean; readonly onSelect: () => void; readonly menu: () => readonly MenuEntry[] }): ReactElement {
   const { p } = useTheme();
   return (
-    <div {...menuOn(menu, onSelect)} role="tab" aria-label={tab.procedure} style={{ display: "flex", alignItems: "center", gap: 7, paddingLeft: 14, paddingRight: 14, borderRightWidth: 1, borderColor: p.fill, backgroundColor: active ? p.deep2 : p.deep, color: active ? p.text : p.muted, cursor: "pointer" }}>
-      <Icon name="pseudocode" size={14} color={active ? p.text : p.muted} />
-      <div style={{ fontFamily: MONO, fontSize: 12.5 }}>{tab.procedure}</div>
+    <div {...menuOn(menu, onSelect)} role="tab" aria-label={tab.procedure} style={{ display: "flex", alignItems: "center", gap: 7, flexShrink: 0, paddingLeft: 14, paddingRight: 14, borderRightWidth: 1, borderColor: p.fill, backgroundColor: active ? p.deep2 : p.deep, color: active ? p.text : p.muted, cursor: "pointer" }}>
+      <Icon name={tab.kind === "result" ? "text" : "pseudocode"} size={14} color={active ? p.text : p.muted} />
+      <div style={{ maxWidth: 260, fontSize: 12.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", ...(tab.kind === "result" ? {} : { fontFamily: MONO }) }}>{tab.procedure}</div>
     </div>
   );
 }
 
-function CodeBody({ code, procedure, onLink }: { readonly code: CodeState; readonly procedure: string; readonly onLink: (name: string) => void }): ReactElement {
+function CodeBody({ tab, onLink }: { readonly tab: CanvasTab; readonly onLink: (name: string) => void }): ReactElement {
+  const { code, procedure } = tab;
   const { p } = useTheme();
   switch (code.kind) {
     case "loading":
@@ -26,7 +27,7 @@ function CodeBody({ code, procedure, onLink }: { readonly code: CodeState; reado
     case "failed":
       return <div style={{ padding: 16, fontSize: 12.5, color: p.error }}>Couldn't load {procedure}: {code.message}</div>;
     case "ready":
-      return <CodeView code={code.text} onLink={onLink} />;
+      return tab.kind === "result" ? <CodeView code={code.text} syntax="code" /> : <CodeView code={code.text} onLink={onLink} />;
     default: {
       const unhandled: never = code;
       return unhandled;
@@ -71,7 +72,7 @@ export function Canvas({ tabs, active, target, onSelect, onLink, onWorkbench, on
           {tabs.map((t, ix) => {
             const tabMenu = (): readonly MenuEntry[] => [
               ...(onWorkbench ? [{ kind: "action", label: "Open in the workbench", icon: "expand", run: () => { onSelect(ix); onWorkbench(); } } as const] : []),
-              { kind: "action", label: "Copy name", icon: "copy", run: () => copyText(t.procedure) },
+              { kind: "action", label: t.kind === "result" ? "Copy title" : "Copy name", icon: "copy", run: () => copyText(t.procedure) },
               { kind: "separator" },
               { kind: "action", label: "Close the code panel", icon: "close", run: onClose },
             ];
@@ -81,16 +82,18 @@ export function Canvas({ tabs, active, target, onSelect, onLink, onWorkbench, on
         <CanvasBar onWorkbench={onWorkbench} onClose={onClose} />
       </div>
       <Row gap={8} style={{ height: 32, flexShrink: 0, paddingLeft: 14, paddingRight: 14, borderBottomWidth: 1, borderColor: p.raised2, fontSize: 12, color: p.muted }}>
-        <div>{target?.name ?? ""}</div>
-        <div>/</div>
-        <div>{target?.arch ?? ""}</div>
-        <div>/</div>
-        <div style={{ fontFamily: MONO, color: p.text3 }}>{tab.procedure}</div>
+        {[target?.name, target?.arch].filter((crumb): crumb is string => Boolean(crumb)).map((crumb) => (
+          <Row key={crumb} gap={8} style={{ flexShrink: 0 }}>
+            <div style={{ whiteSpace: "nowrap" }}>{crumb}</div>
+            <div>/</div>
+          </Row>
+        ))}
+        <div style={{ flexShrink: 1, minWidth: 0, color: p.text3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", ...(tab.kind === "result" ? {} : { fontFamily: MONO }) }}>{tab.procedure}</div>
         <Spacer />
-        <div>Pseudocode from Ghidra</div>
+        <div style={{ flexShrink: 0, whiteSpace: "nowrap" }}>{tab.kind === "result" ? "What the tool returned" : "Pseudocode from Ghidra"}</div>
       </Row>
-      <div style={{ flexGrow: 1, minHeight: 0, overflow: "scroll" }}>
-        <CodeBody code={tab.code} procedure={tab.procedure} onLink={onLink} />
+      <div style={{ display: "flex", alignItems: "flex-start", flexGrow: 1, minWidth: 0, minHeight: 0, overflow: "scroll" }}>
+        <CodeBody tab={tab} onLink={onLink} />
       </div>
     </div>
   );

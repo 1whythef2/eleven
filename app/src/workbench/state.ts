@@ -170,6 +170,8 @@ function sameTarget(tab: Tab, target: TabTarget): boolean {
       return tab.kind === "source" && tab.file === target.file;
     case "resource":
       return tab.kind === "resource" && tab.file === target.file;
+    case "text":
+      return tab.kind === "text" && tab.title === target.title;
     case "tool":
       return tab.kind === "tool" && tab.tool === target.tool;
     default: {
@@ -203,6 +205,8 @@ function freshTab(target: TabTarget, id: string, preview: boolean, view: CodeMod
       return { kind: "source", id, file: target.file, preview };
     case "resource":
       return { kind: "resource", id, file: target.file, preview };
+    case "text":
+      return { kind: "text", id, title: target.title, text: target.text, preview };
     case "tool":
       return { kind: "tool", id, tool: target.tool, preview };
     default: {

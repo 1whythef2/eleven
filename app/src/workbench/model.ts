@@ -27,6 +27,7 @@ export type Tab =
   | { readonly kind: "listing"; readonly id: string; readonly preview: boolean }
   | { readonly kind: "source"; readonly id: string; readonly file: string; readonly preview: boolean }
   | { readonly kind: "resource"; readonly id: string; readonly file: string; readonly preview: boolean }
+  | { readonly kind: "text"; readonly id: string; readonly title: string; readonly text: string; readonly preview: boolean }
   | { readonly kind: "tool"; readonly id: string; readonly tool: Tool; readonly preview: boolean };
 
 export type TabTarget =
@@ -41,6 +42,7 @@ export type TabTarget =
   | { readonly kind: "listing" }
   | { readonly kind: "source"; readonly file: string }
   | { readonly kind: "resource"; readonly file: string }
+  | { readonly kind: "text"; readonly title: string; readonly text: string }
   | { readonly kind: "tool"; readonly tool: Tool };
 
 export type Pane = { readonly tabs: readonly Tab[]; readonly active: number };

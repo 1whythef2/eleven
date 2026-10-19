@@ -18,7 +18,11 @@ import type { Agents } from "./useAgents";
 import type { Thread } from "./useThread";
 import { noteTyping } from "../lib/shortcuts";
 import { useDropTarget } from "../Shell";
-import { primaryHeld } from "../lib/platform";
+import { join } from "node:path";
+
+import { cacheRoot, choosePath, clipboardFile, primaryHeld } from "../lib/platform";
+import { type Attachment, attachmentFor, canAttach } from "../agents/attachments";
+import { AttachmentChip } from "./Attachments";
 
 export type ComposerPlace = "landing" | "conversation" | "dock";
 
@@ -29,6 +33,9 @@ const PLACEHOLDER: Readonly<Record<ComposerPlace, string>> = {
 };
 
 const NO_MENTIONS = indexMentions([]);
+
+/** One ⌘V can reach the box twice in a row; a second paste inside this window is the same paste. */
+const PASTE_GAP_MS = 500;
 
 function RoundIcon({ icon, size, label, ring = false, onClick }: { readonly icon: string; readonly size: number; readonly label: string; readonly ring?: boolean; readonly onClick: () => void }): ReactElement {
   const { p } = useTheme();
@@ -165,6 +172,8 @@ export function Composer({ place, target, agents, thread, onAttach, onDetach, on
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [mentioning, setMentioning] = useState(false);
   const [picked, setPicked] = useState<readonly Mention[]>([]);
+  const [files, setFiles] = useState<readonly Attachment[]>([]);
+  const lastPaste = useRef(0);
   const box = useRef<PublicInstance>(null);
   const { renderer } = useGpuix();
   const refocus = (): void => queueMicrotask(() => {
@@ -174,15 +183,40 @@ export function Composer({ place, target, agents, thread, onAttach, onDetach, on
   const about = mention && mention !== dropped ? mention : null;
   const skills = useMemo(loadSkills, []);
   const fileOnly = place === "landing" && target !== null && draft.trim().length === 0;
-  const typed = draft.trim().length > 0 || fileOnly;
+  const typed = draft.trim().length > 0 || fileOnly || files.length > 0;
+  const addFiles = (added: readonly Attachment[]): void => {
+    setFiles((current) => [...current, ...added.filter((file) => !current.some((have) => have.path === file.path))]);
+  };
+  const attachFile = async (): Promise<void> => {
+    const path = await choosePath("file", "Attach to the message");
+    if (path) addFiles([await attachmentFor(path)]);
+    refocus();
+  };
+  const pasteFile = async (): Promise<void> => {
+    const now = Date.now();
+    if (now - lastPaste.current < PASTE_GAP_MS) return;
+    lastPaste.current = now;
+    const path = await clipboardFile(join(cacheRoot(), "pasted"));
+    if (path) addFiles([await attachmentFor(path)]);
+  };
+  const onFileDrop = async (event: EventPayload): Promise<void> => {
+    const paths = (event.paths ?? []).filter(canAttach);
+    if (paths.length === 0) {
+      drop.onFileDrop?.(event);
+      return;
+    }
+    addFiles(await Promise.all(paths.map(attachmentFor)));
+  };
+  const dropHere = { onFileDrop: (event: EventPayload) => void onFileDrop(event) };
   const stopping = thread.busy && !typed;
   const commandReturn = useSettings().settings.sendKey === "Command Return";
   const submit = (): void => {
     if (!typed || blocked) return;
-    const text = fileOnly && target ? `What does ${target.name} do when it starts?` : draft;
-    thread.send(withMentions(about ? `@${about} ${text}` : text, picked));
+    const text = fileOnly && target ? `What does ${target.name} do when it starts?` : draft.trim() || "Have a look at this.";
+    thread.send(withMentions(about ? `@${about} ${text}` : text, picked), files);
     setDraft("");
     setPicked([]);
+    setFiles([]);
   };
   const onChange = (text: string): void => {
     const before = startedMention(draft, text);
@@ -202,6 +236,7 @@ export function Composer({ place, target, agents, thread, onAttach, onDetach, on
   const onKeyDown = (event: EventPayload): void => {
     noteTyping(event);
     if (event.key === "escape" && thread.busy) thread.stop();
+    if (event.key?.toLowerCase() === "v" && primaryHeld(event.modifiers)) void pasteFile();
     if (commandReturn && event.key === "enter" && primaryHeld(event.modifiers)) submit();
   };
   const pick = (item: PaletteItem): void => {
@@ -258,7 +293,7 @@ export function Composer({ place, target, agents, thread, onAttach, onDetach, on
       )}
       {place !== "landing" && palette}
       {place !== "landing" && picker}
-      <div {...drop} style={{ display: "flex", flexDirection: "column", borderWidth: 1, borderColor: queued ? p.link : thread.busy || (landing && target) ? p.line3 : p.sel, borderRadius: 20, backgroundColor: p.win }}>
+      <div {...dropHere} style={{ display: "flex", flexDirection: "column", borderWidth: 1, borderColor: queued ? p.link : thread.busy || (landing && target) ? p.line3 : p.sel, borderRadius: 20, backgroundColor: p.win }}>
         {slot}
         {landing && target && (
           <Row gap={8} style={{ paddingTop: 12, paddingLeft: 14, paddingRight: 14 }}>
@@ -281,8 +316,13 @@ export function Composer({ place, target, agents, thread, onAttach, onDetach, on
             </div>
           </Row>
         )}
+        {files.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, paddingTop: 10, paddingLeft: 14, paddingRight: 14 }}>
+            {files.map((file) => <AttachmentChip key={file.path} file={file} onRemove={() => setFiles(files.filter((have) => have.path !== file.path))} />)}
+          </div>
+        )}
         <textarea
-          {...drop}
+          {...dropHere}
           ref={box}
           autoFocus
           aria-label="Message"
@@ -297,6 +337,7 @@ export function Composer({ place, target, agents, thread, onAttach, onDetach, on
         />
         <Row gap={landing ? 8 : 4} style={landing ? { paddingTop: 6, paddingLeft: 10, paddingRight: 10, paddingBottom: 10 } : { paddingTop: 4, paddingLeft: 8, paddingRight: 8, paddingBottom: 8 }}>
           <RoundIcon icon="new" size={landing ? 15 : 16} label="Add a file" ring={landing} onClick={onAttach} />
+          <RoundIcon icon="attach" size={15} label="Attach an image or file" ring={landing} onClick={() => void attachFile()} />
           <RoundIcon icon="slash" size={15} label="Modes, skills and files" onClick={() => setPaletteOpen(true)} />
           {landing && !thread.state.options.some((option) => option.category === "mode") && <RunCodePill compact={false} />}
           <Settings thread={thread} pill={landing} compact={place === "dock"} />

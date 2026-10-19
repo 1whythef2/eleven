@@ -1,5 +1,8 @@
 export type StepStatus = "running" | "done" | "failed";
 
+/** What a tool does, as the agent protocol classifies it. */
+export type ToolKind = "read" | "edit" | "delete" | "move" | "search" | "execute" | "think" | "fetch" | "switch_mode" | "other";
+
 export type PermissionChoice = { readonly id: string; readonly label: string; readonly allows: boolean };
 
 export type PlanItem = { readonly content: string; readonly status: "pending" | "in_progress" | "completed" };
@@ -31,6 +34,7 @@ export type AgentEvent =
       readonly kind: "step";
       readonly id: string;
       readonly tool: string;
+      readonly toolKind: ToolKind | null;
       readonly status: StepStatus;
       readonly input: unknown;
       readonly output: string | null;

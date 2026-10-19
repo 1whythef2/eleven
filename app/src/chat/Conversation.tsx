@@ -7,7 +7,7 @@ import { seconds, useNow } from "../lib/useNow";
 import { useTheme } from "../theme";
 import { Icon, Row, Spacer } from "../components/ui";
 import { MessageView } from "./MessageView";
-import type { Message, ThreadState } from "./thread";
+import type { Draft, Message, ThreadState } from "./thread";
 import type { Thread } from "./useThread";
 
 const VERBS = ["Taking it apart", "Reading the code", "Tracing calls", "Following references", "Untangling", "Decompiling"] as const;
@@ -47,7 +47,7 @@ export function runningTool(messages: readonly Message[]): string | null {
   const last = messages[messages.length - 1];
   if (last?.kind !== "agent") return null;
   const step = [...last.blocks].reverse().find((block) => block.kind === "tool" && block.step.status === "running");
-  return step?.kind === "tool" ? toolLabel(step.step.tool, step.step.input).label : null;
+  return step?.kind === "tool" ? toolLabel(step.step.tool, step.step.input, step.step.summary).label : null;
 }
 
 export function Working({ since, tool }: { readonly since: number; readonly tool: string | null }): ReactElement {
@@ -95,7 +95,7 @@ function PlanPanel({ items }: { readonly items: readonly PlanItem[] }): ReactEle
   );
 }
 
-export function QueuePanel({ queue, onRemove }: { readonly queue: readonly string[]; readonly onRemove: (index: number) => void }): ReactElement {
+export function QueuePanel({ queue, onRemove }: { readonly queue: readonly Draft[]; readonly onRemove: (index: number) => void }): ReactElement {
   const { p } = useTheme();
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 2, marginBottom: 8, paddingTop: 8, paddingBottom: 6, paddingLeft: 12, paddingRight: 8, borderWidth: 1, borderColor: p.line2, borderRadius: 14, backgroundColor: p.raised }}>
@@ -103,9 +103,10 @@ export function QueuePanel({ queue, onRemove }: { readonly queue: readonly strin
         <Icon name="clock" size={13} />
         <div>{`${queue.length} queued, sends when the agent is done`}</div>
       </Row>
-      {queue.map((text, ix) => (
-        <Row key={`${ix}-${text}`} gap={8} style={{ height: 24, fontSize: 12.5 }}>
-          <div style={{ flexGrow: 1, minWidth: 0, color: p.text2, whiteSpace: "nowrap", textOverflow: "ellipsis", overflow: "hidden" }}>{text}</div>
+      {queue.map((draft, ix) => (
+        <Row key={`${ix}-${draft.text}`} gap={8} style={{ height: 24, fontSize: 12.5 }}>
+          <div style={{ flexGrow: 1, minWidth: 0, color: p.text2, whiteSpace: "nowrap", textOverflow: "ellipsis", overflow: "hidden" }}>{draft.text}</div>
+          {draft.attachments.length > 0 && <div style={{ flexShrink: 0, color: p.muted }}>{draft.attachments.length === 1 ? "1 file" : `${draft.attachments.length} files`}</div>}
           <div onClick={() => onRemove(ix)} aria-label="Remove from queue" style={{ display: "flex", padding: 4, cursor: "pointer", hover: { opacity: 0.72 } }}>
             <Icon name="close" size={11} />
           </div>
@@ -149,6 +150,7 @@ export function Conversation({ thread, title, agentName, composer, onWorkbench }
     onAnswer: (choice: Parameters<Thread["answer"]>[2]) => message.kind === "permission" && thread.answer(ix, message.id, choice),
     onRetry: thread.retry,
     onOpen: thread.openFunction,
+    onOpenText: thread.openText,
   });
   return (
     <div style={{ display: "flex", flexDirection: "column", flexGrow: 1, flexBasis: 440, minWidth: 0 }}>

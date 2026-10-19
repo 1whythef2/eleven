@@ -4,6 +4,8 @@ import { basename, isAbsolute, join } from "node:path";
 
 import * as acp from "@agentclientprotocol/sdk";
 
+import { type Attachment, promptBlocks } from "./attachments";
+
 import { AGENT_ENV, BRIDGE_ENV, CHAT_ENV, ELEVEN_SERVER } from "../bridge/protocol";
 import { errorMessage } from "../lib/guards";
 import { toWebReadable, toWebWritable } from "../lib/streams";
@@ -161,6 +163,7 @@ export class AgentSession {
   /** Set once Eleven stops this session on purpose; nothing it says afterwards reaches the thread. */
   private stopped = false;
   private options: readonly SessionOption[] = [];
+  private prompts: acp.PromptCapabilities = {};
   /** Your saved picks being applied; the first prompt waits so it runs on the model you chose. */
   private restoring: Promise<void> = Promise.resolve();
 
@@ -202,6 +205,7 @@ export class AgentSession {
   private async start(): Promise<void> {
     this.connection = this.connect(await resolveLaunch(this.agent, this.native));
     const init = await this.connection.initialize({ protocolVersion: acp.PROTOCOL_VERSION, clientCapabilities: { session: { notices: {} } } });
+    this.prompts = init.agentCapabilities?.promptCapabilities ?? {};
     const session = await this.connection.newSession({ cwd: this.cwd, mcpServers: this.tools ? toolServers(shortName(this.agent.name), this.chat) : [] });
     this.sessionId = session.sessionId;
     this.emit({ kind: "connected", agent: shortName(init.agentInfo?.title ?? init.agentInfo?.name ?? this.agent.name) });
@@ -271,11 +275,11 @@ export class AgentSession {
     })().catch(() => undefined);
   }
 
-  async prompt(text: string): Promise<void> {
+  async prompt(text: string, attachments: readonly Attachment[] = []): Promise<void> {
     try {
       await this.restoring;
       const { connection, sessionId } = await this.session();
-      const result = await connection.prompt({ sessionId, prompt: [{ type: "text", text }] });
+      const result = await connection.prompt({ sessionId, prompt: [{ type: "text", text }, ...(await promptBlocks(attachments, this.prompts))] });
       this.emit({ kind: "turnEnded", cancelled: result.stopReason === "cancelled" });
     } catch (err) {
       await delay(EXIT_GRACE_MS);

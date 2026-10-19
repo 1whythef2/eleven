@@ -61,10 +61,10 @@ function ActionRow({ icon, label, command, onClick }: { readonly icon: string; r
   );
 }
 
-function SectionLabel({ text, children }: { readonly text: string; readonly children?: ReactNode }): ReactElement {
+function SectionLabel({ text, first = false, children }: { readonly text: string; readonly first?: boolean; readonly children?: ReactNode }): ReactElement {
   const { p } = useTheme();
   return (
-    <Row gap={6} style={{ height: 26, flexShrink: 0, marginTop: 14, paddingLeft: 8, paddingRight: 8 }}>
+    <Row gap={6} style={{ height: 26, flexShrink: 0, marginTop: first ? 0 : 14, paddingLeft: 8, paddingRight: 8 }}>
       <div style={{ flexGrow: 1, fontSize: 12, fontWeight: 500, color: p.faint, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{text}</div>
       {children}
     </Row>
@@ -243,8 +243,8 @@ export function Sidebar({ projects, project, chats, threads, current, running, a
       <div style={{ height: 46, flexShrink: 0 }} />
       <ActionRow icon="new-chat" label="New chat" command="thread" onClick={onNewThread} />
       <ActionRow icon="folder" label="Open…" command="open" onClick={onOpen} />
-      <div style={{ display: "flex", flexDirection: "column", flexGrow: 1, minHeight: 0, overflowY: "scroll" }}>
-        <SectionLabel text="Projects">
+      <div style={{ display: "flex", flexDirection: "column", flexGrow: 1, minHeight: 0, overflowY: "scroll", paddingTop: 14 }}>
+        <SectionLabel text="Projects" first>
           {projects.length > 0 && (
             <div onClick={onSeeAll} role="button" aria-label="See all projects" style={{ fontSize: 12, color: p.faint, cursor: "pointer", hover: { opacity: 0.72 } }}>See all</div>
           )}

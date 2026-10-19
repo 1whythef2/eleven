@@ -9,7 +9,7 @@ const PAD = { width: "100%", paddingLeft: 16, paddingRight: 16 } as const;
 
 /** The real conversation, following new messages as they arrive, with function links opening workbench tabs. */
 export function LiveThread({ chatId }: { readonly chatId: string | null }): ReactElement {
-  const { chat, addrOf, openFn } = useBench();
+  const { wb, chat, addrOf, openFn } = useBench();
   const { thread, agents } = chat;
   const { messages, agent, queue } = thread.state;
   const open = (procedure: string): void => {
@@ -28,6 +28,7 @@ export function LiveThread({ chatId }: { readonly chatId: string | null }): Reac
               onAnswer: (choice) => message.kind === "permission" && thread.answer(ix, message.id, choice),
               onRetry: thread.retry,
               onOpen: open,
+              onOpenText: (title, text) => wb.open({ kind: "text", title, text }, false),
             }}
           />
         </div>

@@ -1,3 +1,4 @@
+import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { run, runSync, startWith } from "./process";
@@ -196,6 +197,51 @@ export function choosePath(kind: "folder" | "file", prompt: string): Promise<str
     return firstLine("powershell.exe", ["-NoProfile", "-STA", "-Command", `[Console]::OutputEncoding=[Text.Encoding]::UTF8; Add-Type -AssemblyName System.Windows.Forms; ${dialog}`]);
   }
   return firstLine("zenity", ["--file-selection", ...(kind === "folder" ? ["--directory"] : []), `--title=${clean}`]);
+}
+
+function stamp(): string {
+  return new Date().toISOString().replace(/[:T]/g, "-").slice(0, 19);
+}
+
+async function macClipboardFile(out: string): Promise<string | null> {
+  const info = (await firstLine("osascript", ["-e", "clipboard info"])) ?? "";
+  if (info.includes("«class furl»")) return firstLine("osascript", ["-e", "POSIX path of (the clipboard as «class furl»)"]);
+  const image = info.includes("«class PNGf»") ? "«class PNGf»" : info.includes("TIFF picture") ? "TIFF picture" : null;
+  if (!image) return null;
+  const file = image === "TIFF picture" ? out.replace(/\.png$/, ".tiff") : out;
+  const saved = await firstLine("osascript", ["-e", `set f to open for access POSIX file "${file}" with write permission`, "-e", "set eof f to 0", "-e", `write (the clipboard as ${image}) to f`, "-e", "close access f", "-e", `"${file}"`]);
+  if (!saved) return null;
+  if (file === out) return out;
+  try {
+    await run("sips", ["-s", "format", "png", file, "--out", out]);
+    return out;
+  } catch {
+    return null;
+  }
+}
+
+async function linuxClipboardFile(out: string): Promise<string | null> {
+  const wayland = Boolean(process.env.WAYLAND_DISPLAY);
+  const paste = (type: string): Promise<string | null> => (wayland ? firstLine("wl-paste", ["--type", type]) : firstLine("xclip", ["-selection", "clipboard", "-t", type, "-o"]));
+  const types = (await (wayland ? firstLine("wl-paste", ["--list-types"]) : paste("TARGETS"))) ?? "";
+  if (types.includes("text/uri-list")) {
+    const first = (await paste("text/uri-list"))?.split("\n").find((line) => line.startsWith("file://"));
+    return first ? decodeURIComponent(first.slice("file://".length)) : null;
+  }
+  if (!types.includes("image/png")) return null;
+  const read = wayland ? "wl-paste --type image/png" : "xclip -selection clipboard -t image/png -o";
+  return firstLine("sh", ["-c", `${read} > "${out}" && printf '%s' "${out}"`]);
+}
+
+/** What the clipboard holds that can go into a message: a copied file's path, or an image saved as a PNG in `folder`; null for text or nothing. */
+export function clipboardFile(folder: string): Promise<string | null> {
+  mkdirSync(folder, { recursive: true });
+  const out = join(folder, `Pasted ${stamp()}.png`);
+  if (OS === "mac") return macClipboardFile(out);
+  if (OS === "windows") {
+    return firstLine("powershell.exe", ["-NoProfile", "-STA", "-Command", `[Console]::OutputEncoding=[Text.Encoding]::UTF8; Add-Type -AssemblyName System.Windows.Forms; $c = [System.Windows.Forms.Clipboard]; if ($c::ContainsFileDropList()) { $c::GetFileDropList()[0] } elseif ($c::ContainsImage()) { $c::GetImage().Save(${psQuote(out)}); ${psQuote(out)} }`]);
+  }
+  return linuxClipboardFile(out);
 }
 
 /** Asks where to save a file, starting in `folder` with `name` filled in; null when you cancel. */

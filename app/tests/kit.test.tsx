@@ -18,8 +18,8 @@ const TURN: Message = {
   endedAt: 2000,
   outcome: "done",
   blocks: [
-    { kind: "tool", step: { id: "a", tool: "Read pseudocode", input: { procedure: "entry" }, output: "ok", status: "done", startedAt: 1000, endedAt: 1157 } },
-    { kind: "tool", step: { id: "b", tool: "Read pseudocode", input: { procedure: "FUN_1" }, output: "Ghidra couldn't decompile this function.", status: "failed", startedAt: 1000, endedAt: 1200 } },
+    { kind: "tool", step: { id: "a", tool: "Read pseudocode", toolKind: null, input: { procedure: "entry" }, summary: null, output: "ok", status: "done", startedAt: 1000, endedAt: 1157 } },
+    { kind: "tool", step: { id: "b", tool: "Read pseudocode", toolKind: null, input: { procedure: "FUN_1" }, summary: null, output: "Ghidra couldn't decompile this function.", status: "failed", startedAt: 1000, endedAt: 1200 } },
     { kind: "text", text: "It prints usage in FUN_100004088." },
   ],
 };
@@ -42,6 +42,7 @@ function Kit(): ReactElement {
     },
     onRetry: () => {},
     onOpen: (name: string) => setAnswer(`opened ${name}`),
+    onOpenText: (title: string) => setAnswer(`opened text ${title}`),
   };
   return (
     <ThemeContext.Provider value={{ p: DARK, appearance: "Dark", setAppearance: () => {} }}>

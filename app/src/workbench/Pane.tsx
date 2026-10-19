@@ -2,6 +2,7 @@ import { type ReactElement, useState } from "react";
 
 import { chatTitle } from "../chat/useChat";
 import { Tooltip } from "../components/kit";
+import { CodeView } from "../components/code";
 import { DALVIK } from "../engine/jadx";
 import { useTheme } from "../theme";
 import { Icon, Spacer } from "../components/ui";
@@ -192,6 +193,12 @@ function Body({ tab }: { readonly tab: Tab | undefined }): ReactElement {
       return <SourceView file={tab.file} />;
     case "resource":
       return <ResourceView file={tab.file} />;
+    case "text":
+      return (
+        <div style={{ display: "flex", alignItems: "flex-start", flexGrow: 1, minWidth: 0, minHeight: 0, overflow: "scroll" }}>
+          <CodeView code={tab.text} syntax="code" />
+        </div>
+      );
     case "tool":
       return <ToolBody tool={tab.tool} />;
     default: {
@@ -202,7 +209,7 @@ function Body({ tab }: { readonly tab: Tab | undefined }): ReactElement {
 }
 
 function ownsScroll(tab: Tab | undefined): boolean {
-  if (tab?.kind === "list" || tab?.kind === "listing" || tab?.kind === "thread") return true;
+  if (tab?.kind === "list" || tab?.kind === "listing" || tab?.kind === "thread" || tab?.kind === "text") return true;
   if (tab?.kind === "model") return pageOwnsScroll(tab.page);
   if (tab?.kind === "tool") return fillsSpace(tab.tool);
   return tab?.kind === "fn" && tab.view !== "hex";

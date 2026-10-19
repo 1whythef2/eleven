@@ -1,10 +1,14 @@
-import type { AgentEvent, PermissionChoice, PlanItem, SessionOption, SlashCommand, StepStatus, Usage } from "../agents/events";
+import type { Attachment } from "../agents/attachments";
+import type { AgentEvent, PermissionChoice, PlanItem, SessionOption, SlashCommand, StepStatus, ToolKind, Usage } from "../agents/events";
 import { stringField } from "../lib/guards";
 
 export type Step = {
   readonly id: string;
   readonly tool: string;
+  readonly toolKind: ToolKind | null;
   readonly input: unknown;
+  /** The one line an agent sends while a tool runs to say what it is for, like "Browse mDNS services". */
+  readonly summary: string | null;
   readonly output: string | null;
   readonly status: StepStatus;
   readonly startedAt: number;
@@ -22,7 +26,7 @@ export type TurnOutcome = "running" | "done" | "cancelled" | "failed";
 export type PermissionState = { readonly kind: "pending" } | { readonly kind: "answered"; readonly label: string };
 
 export type Message =
-  | { readonly kind: "user"; readonly text: string; readonly at: number }
+  | { readonly kind: "user"; readonly text: string; readonly at: number; readonly attachments?: readonly Attachment[] }
   | { readonly kind: "agent"; readonly blocks: readonly Block[]; readonly startedAt: number; readonly endedAt: number | null; readonly outcome: TurnOutcome }
   | {
       readonly kind: "permission";
@@ -34,12 +38,16 @@ export type Message =
     }
   | { readonly kind: "note"; readonly text: string; readonly tone: "info" | "error" };
 
+/** A message waiting its turn: what you typed and what you attached. */
+export type Draft = { readonly text: string; readonly attachments: readonly Attachment[] };
+
 export type CodeState =
   | { readonly kind: "loading" }
   | { readonly kind: "ready"; readonly text: string }
   | { readonly kind: "failed"; readonly message: string };
 
-export type CanvasTab = { readonly procedure: string; readonly code: CodeState };
+/** A function the agent read, or a whole tool result opened from the chat; `procedure` is the tab title either way. */
+export type CanvasTab = { readonly kind: "function" | "result"; readonly procedure: string; readonly code: CodeState };
 
 export type AgentStatus =
   | { readonly kind: "idle" }
@@ -57,15 +65,15 @@ export type ThreadState = {
   readonly commands: readonly SlashCommand[];
   readonly options: readonly SessionOption[];
   readonly usage: Usage | null;
-  readonly queue: readonly string[];
+  readonly queue: readonly Draft[];
   /** Bumps on every open, so screens follow the agent even back to a tab that is already open. */
   readonly opened: number;
 };
 
 export type ThreadAction =
   | { readonly type: "starting" }
-  | { readonly type: "sent"; readonly text: string; readonly at: number }
-  | { readonly type: "queued"; readonly text: string }
+  | { readonly type: "sent"; readonly draft: Draft; readonly at: number }
+  | { readonly type: "queued"; readonly draft: Draft }
   | { readonly type: "dequeued" }
   | { readonly type: "unqueued"; readonly index: number }
   | { readonly type: "event"; readonly event: AgentEvent; readonly at: number }
@@ -77,6 +85,7 @@ export type ThreadAction =
   | { readonly type: "switchAgent" }
   | { readonly type: "codeLoaded"; readonly procedure: string; readonly code: CodeState }
   | { readonly type: "openTab"; readonly procedure: string }
+  | { readonly type: "openText"; readonly title: string; readonly text: string }
   | { readonly type: "selectTab"; readonly index: number }
   | { readonly type: "closeCanvas" };
 
@@ -122,17 +131,42 @@ function appendText(blocks: readonly Block[], kind: "text" | "thought", text: st
 }
 
 function hasArgs(input: unknown): boolean {
-  return ["procedure", "pattern", "address", "path"].some((key) => stringField(input, key) !== undefined);
+  return ["procedure", "pattern", "address", "path", "command", "url", "file_path", "query"].some((key) => stringField(input, key) !== undefined);
 }
 
-function upsertStep(blocks: readonly Block[], event: Extract<AgentEvent, { kind: "step" }>, at: number): readonly Block[] {
+const SUMMARY_MAX = 160;
+
+type StepEvent = Extract<AgentEvent, { kind: "step" }>;
+
+/** A short line sent while the tool still runs is what the agent says the call is for, not its result. */
+function summaryOf(event: StepEvent): string | null {
+  const text = event.output?.trim() ?? "";
+  if (event.status !== "running" || !text || text.length > SUMMARY_MAX || text.includes("\n") || text.startsWith("```")) return null;
+  return text;
+}
+
+function upsertStep(blocks: readonly Block[], event: StepEvent, at: number): readonly Block[] {
   const exists = blocks.some((block) => block.kind === "tool" && block.step.id === event.id);
   const ended = event.status === "running" ? null : at;
-  if (!exists) return [...closeThoughts(blocks, at), { kind: "tool", step: { id: event.id, tool: event.tool, input: event.input, output: event.output, status: event.status, startedAt: at, endedAt: ended } }];
+  const summary = summaryOf(event);
+  const output = summary ? null : event.output;
+  if (!exists) return [...closeThoughts(blocks, at), { kind: "tool", step: { id: event.id, tool: event.tool, toolKind: event.toolKind, input: event.input, summary, output, status: event.status, startedAt: at, endedAt: ended } }];
   return blocks.map((block) => {
     if (block.kind !== "tool" || block.step.id !== event.id) return block;
     const step = block.step;
-    return { kind: "tool", step: { ...step, status: event.status, endedAt: step.endedAt ?? ended, tool: event.tool || step.tool, input: hasArgs(event.input) ? event.input : step.input, output: event.output ?? step.output } };
+    return {
+      kind: "tool",
+      step: {
+        ...step,
+        status: event.status,
+        endedAt: step.endedAt ?? ended,
+        tool: event.tool || step.tool,
+        toolKind: event.toolKind ?? step.toolKind,
+        input: hasArgs(event.input) ? event.input : step.input,
+        summary: summary ?? step.summary,
+        output: output ?? step.output,
+      },
+    };
   });
 }
 
@@ -145,7 +179,16 @@ function openTab(state: ThreadState, procedure: string): ThreadState {
   const at = state.tabs.findIndex((tab) => tab.procedure === procedure);
   const opened = state.opened + 1;
   if (at >= 0) return { ...state, active: at, canvasOpen: true, opened };
-  return { ...state, tabs: [...state.tabs, { procedure, code: { kind: "loading" } }], active: state.tabs.length, canvasOpen: true, opened };
+  return { ...state, tabs: [...state.tabs, { kind: "function", procedure, code: { kind: "loading" } }], active: state.tabs.length, canvasOpen: true, opened };
+}
+
+/** A whole tool result as its own canvas tab, titled by what the tool did; the same title replaces its tab. */
+function openText(state: ThreadState, title: string, text: string): ThreadState {
+  const tab: CanvasTab = { kind: "result", procedure: title, code: { kind: "ready", text } };
+  const at = state.tabs.findIndex((candidate) => candidate.procedure === title);
+  const opened = state.opened + 1;
+  if (at >= 0) return { ...state, tabs: state.tabs.map((candidate, ix) => (ix === at ? tab : candidate)), active: at, canvasOpen: true, opened };
+  return { ...state, tabs: [...state.tabs, tab], active: state.tabs.length, canvasOpen: true, opened };
 }
 
 function withTurn(state: ThreadState): readonly Message[] {
@@ -208,9 +251,10 @@ function answer(state: ThreadState, index: number, label: string): ThreadState {
   return { ...state, messages: state.messages.map((m, ix) => (ix === index && m.kind === "permission" ? { ...m, state: answered } : m)) };
 }
 
-function sent(state: ThreadState, text: string, at: number): ThreadState {
+function sent(state: ThreadState, draft: Draft, at: number): ThreadState {
   const name = agentName(state.agent) ?? "";
-  return { ...state, agent: { kind: "working", name, since: at }, messages: [...state.messages, { kind: "user", text, at }] };
+  const message: Message = draft.attachments.length > 0 ? { kind: "user", text: draft.text, at, attachments: draft.attachments } : { kind: "user", text: draft.text, at };
+  return { ...state, agent: { kind: "working", name, since: at }, messages: [...state.messages, message] };
 }
 
 export function threadReducer(state: ThreadState, action: ThreadAction): ThreadState {
@@ -218,9 +262,9 @@ export function threadReducer(state: ThreadState, action: ThreadAction): ThreadS
     case "starting":
       return state.agent.kind === "idle" ? { ...state, agent: { kind: "starting" } } : state;
     case "sent":
-      return sent(state, action.text, action.at);
+      return sent(state, action.draft, action.at);
     case "queued":
-      return { ...state, queue: [...state.queue, action.text] };
+      return { ...state, queue: [...state.queue, action.draft] };
     case "dequeued":
       return { ...state, queue: state.queue.slice(1) };
     case "unqueued":
@@ -243,6 +287,8 @@ export function threadReducer(state: ThreadState, action: ThreadAction): ThreadS
       return { ...state, tabs: state.tabs.map((tab) => (tab.procedure === action.procedure ? { ...tab, code: action.code } : tab)) };
     case "openTab":
       return openTab(state, action.procedure);
+    case "openText":
+      return openText(state, action.title, action.text);
     case "selectTab":
       return { ...state, active: action.index };
     case "closeCanvas":

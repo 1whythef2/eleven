@@ -226,7 +226,7 @@ export function CodeView({ code, syntax = "c", focusLine = -1, onLink = null }: 
 }): ReactElement {
   const look = useCodeLook();
   return (
-    <div style={{ display: "flex", flexDirection: "column", userSelect: "text", paddingTop: 10, paddingBottom: 24, fontFamily: look.family, fontSize: look.size, lineHeight: look.lineHeight }}>
+    <div style={{ display: "flex", flexDirection: "column", flexShrink: 0, userSelect: "text", paddingTop: 10, paddingBottom: 24, fontFamily: look.family, fontSize: look.size, lineHeight: look.lineHeight }}>
       {code.split("\n").map((line, ix) => (
         <LineView key={ix} line={line} number={ix + 1} focused={ix === focusLine} syntax={syntax} gutter={look.lineNumbers} onLink={onLink} />
       ))}

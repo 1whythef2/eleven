@@ -1,9 +1,11 @@
 import { type ReactElement, useState } from "react";
 
-import { toolLabel } from "../agents/describe";
+import type { Attachment } from "../agents/attachments";
+import { isToolId, toolLabel } from "../agents/describe";
+import { SentAttachments } from "./Attachments";
 import { type MenuEntry, menuOn } from "../components/ContextMenu";
 import { JumpButton, SuggestionCard, Tooltip } from "../components/kit";
-import type { PermissionChoice } from "../agents/events";
+import type { PermissionChoice, ToolKind } from "../agents/events";
 import { stringField } from "../lib/guards";
 import { seconds, useNow } from "../lib/useNow";
 import { syntaxFor, useCodeLook } from "../settings/look";
@@ -41,7 +43,7 @@ function IconAction({ icon, label, onClick }: { readonly icon: string; readonly 
   );
 }
 
-function UserMessage({ text: sent, at }: { readonly text: string; readonly at: number }): ReactElement {
+function UserMessage({ text: sent, at, attachments }: { readonly text: string; readonly at: number; readonly attachments: readonly Attachment[] }): ReactElement {
   const { p } = useTheme();
   const text = shownText(sent);
   const { colorScheme } = useSettings().settings;
@@ -49,7 +51,8 @@ function UserMessage({ text: sent, at }: { readonly text: string; readonly at: n
   const [hovered, setHovered] = useState(false);
   return (
     <div onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-      <div {...menuOn(() => [{ kind: "action", label: "Copy", icon: "copy", run: () => copyText(text) }])} style={{ display: "flex", flexDirection: "column", userSelect: "text", paddingTop: 10, paddingBottom: 10, paddingLeft: 14, paddingRight: 14, borderWidth: 1, borderColor: p.line2, borderRadius: 12, backgroundColor: p.raised }}>
+      <div {...menuOn(() => [{ kind: "action", label: "Copy", icon: "copy", run: () => copyText(text) }])} style={{ display: "flex", flexDirection: "column", gap: 10, userSelect: "text", paddingTop: 10, paddingBottom: 10, paddingLeft: 14, paddingRight: 14, borderWidth: 1, borderColor: p.line2, borderRadius: 12, backgroundColor: p.raised }}>
+        <SentAttachments files={attachments} />
         <markdown source={text.trim()} theme={nativeTheme(p, look, syntaxFor(colorScheme, p))} onLinkClick={(event) => event.value && openLink(event.value)} style={{ color: p.text }} />
       </div>
       <Row gap={2} style={{ height: 24, opacity: hovered ? 1 : 0 }}>
@@ -61,12 +64,13 @@ function UserMessage({ text: sent, at }: { readonly text: string; readonly at: n
   );
 }
 
-function IoSection({ title, body }: { readonly title: string; readonly body: string }): ReactElement {
+function IoSection({ title, body, onOpen = null }: { readonly title: string; readonly body: string; readonly onOpen?: (() => void) | null }): ReactElement {
   const { p } = useTheme();
   return (
-    <div style={{ display: "flex", gap: 10, paddingTop: 8, paddingBottom: 8, paddingLeft: 10, paddingRight: 10 }}>
+    <div {...(onOpen ? { onClick: onOpen, role: "button", "aria-label": "Open the whole result in a tab" } : {})} style={{ display: "flex", gap: 10, paddingTop: 8, paddingBottom: 8, paddingLeft: 10, paddingRight: 6, ...(onOpen ? { cursor: "pointer", hover: { opacity: 0.72 } } : {}) }}>
       <div style={{ width: 26, flexShrink: 0, fontSize: 10.5, fontWeight: 600, color: p.faint, paddingTop: 1 }}>{title}</div>
       <div style={{ flexGrow: 1, minWidth: 0, maxHeight: 220, overflowY: "scroll", fontFamily: MONO, fontSize: 11.5, lineHeight: 17, color: p.text4 }}>{body}</div>
+      {onOpen && <Icon name="open-tab" size={13} color={p.muted} />}
     </div>
   );
 }
@@ -114,26 +118,67 @@ function toolIcon(tool: string): string | null {
   return rules.find(([pattern]) => pattern.test(name))?.[1] ?? null;
 }
 
-/** Functions and addresses a tool turned up, to show as badges. */
+/** When the tool's name says nothing, the kind the agent reported picks the icon. */
+const KIND_ICON: Readonly<Partial<Record<ToolKind, string>>> = {
+  execute: "run",
+  read: "source",
+  search: "search",
+  fetch: "external",
+  edit: "note",
+  delete: "trash",
+  move: "forward",
+  think: "thought",
+  switch_mode: "settings",
+};
+
+function stepIcon(step: Step): string {
+  if (step.toolKind === "execute") return "run";
+  return toolIcon(step.tool) ?? (step.toolKind ? KIND_ICON[step.toolKind] : undefined) ?? "bolt";
+}
+
+/** Agents wrap results in ``` fences; the view draws its own box, so they come off. */
+function unfenced(text: string): string {
+  const trimmed = text.trim();
+  const match = /^```[^\n]*\n([\s\S]*?)\n?```$/.exec(trimmed);
+  return (match?.[1] ?? trimmed).trim();
+}
+
+function capped(text: string): string {
+  return text.length > PREVIEW_CHARS ? `${text.slice(0, PREVIEW_CHARS)}\n…` : text;
+}
+
+/** What the agent sent: the whole command when it ran one, else its input, and nothing for an empty input. */
+function sentText(step: Step, command: string | null): string | null {
+  const whole = stringField(step.input, "command") ?? (command ? step.tool : null);
+  if (whole?.trim()) return capped(whole.trim());
+  const text = preview(step.input);
+  return text && text !== "{}" ? text : null;
+}
+
+/** Functions and addresses an engine tool turned up, to show as badges; command output is never scanned. */
 function found(step: Step): readonly string[] {
-  if (step.status !== "done" || !step.output) return [];
+  if (step.status !== "done" || !step.output || step.toolKind === "execute" || !isToolId(step.tool.trim())) return [];
   const names = step.output.match(/\b(?:FUN|thunk_FUN|LAB|DAT)_[0-9a-f]+\b|\b_[A-Za-z]\w{2,}\b/g) ?? [];
   return [...new Set(names)].slice(0, MAX_FOUND);
 }
 
-function ToolStep({ step, onOpen }: { readonly step: Step; readonly onOpen: (procedure: string) => void }): ReactElement {
+function ToolStep({ step, onOpen, onOpenText }: { readonly step: Step; readonly onOpen: (procedure: string) => void; readonly onOpenText: (title: string, text: string) => void }): ReactElement {
   const { p } = useTheme();
   const [open, setOpen] = useState(false);
-  const { label, detail } = toolLabel(step.tool, step.input);
-  const input = preview(step.input);
+  const { label, detail, command } = toolLabel(step.tool, step.input, step.summary);
+  const sent = sentText(step, command);
+  const got = step.output ? unfenced(step.output) : null;
   const failed = step.status === "failed";
   const results = found(step);
+  const title = detail ? `${label} · ${detail}` : label;
   const header = (
     <div onClick={() => setOpen(!open)} role="button" aria-expanded={open} aria-label={open ? "Hide what it sent and got back" : "Show what it sent and got back"} style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, cursor: "pointer", hover: { opacity: 0.72 } }}>
-      <div style={{ flexShrink: 0, paddingLeft: 6, paddingRight: 6, paddingTop: 1, paddingBottom: 1, borderRadius: 5, backgroundColor: p.fill2, fontSize: 11, color: p.muted, pointerEvents: "none" }}>Tool</div>
-      <Tooltip label={step.tool.trim().split("\n")[0] ?? step.tool}>
-        <div style={{ flexShrink: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</div>
-      </Tooltip>
+      <div style={{ flexShrink: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</div>
+      {command && (
+        <Tooltip label={command}>
+          <div style={{ flexShrink: 1, minWidth: 0, fontFamily: MONO, fontSize: 12, color: p.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{command}</div>
+        </Tooltip>
+      )}
       {detail && <div style={{ flexShrink: 1, minWidth: 0, fontSize: 12, color: p.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{detail}</div>}
       <Spacer />
       <div style={{ flexShrink: 0, fontSize: 12, color: failed ? p.error : p.faint, whiteSpace: "nowrap" }}>{stepState(step)}</div>
@@ -141,15 +186,15 @@ function ToolStep({ step, onOpen }: { readonly step: Step; readonly onOpen: (pro
     </div>
   );
   return (
-    <ChainOfThoughtStep icon={toolIcon(step.tool) ?? "bolt"} label={header} status={step.status === "running" ? "active" : "complete"} tone={failed ? p.error : null}>
-      {failed && <div style={{ fontSize: 12, color: p.error }}>{step.output?.split("\n")[0]?.slice(0, 160) ?? "The agent will try another way."}</div>}
+    <ChainOfThoughtStep icon={stepIcon(step)} label={header} status={step.status === "running" ? "active" : "complete"} tone={failed ? p.error : null}>
+      {failed && <div style={{ fontSize: 12, color: p.error }}>{got?.split("\n")[0]?.slice(0, 160) || "The agent will try another way."}</div>}
       {results.length > 0 && <ChainOfThoughtResults items={results} onPick={onOpen} />}
       {open && (
         <div style={{ display: "flex", flexDirection: "column", borderWidth: 1, borderColor: p.line2, borderRadius: 9, backgroundColor: p.deep }}>
-          {input && <IoSection title="IN" body={input} />}
-          {input && step.output && <div style={{ height: 1, backgroundColor: p.line2 }} />}
-          {step.output && <IoSection title="OUT" body={step.output} />}
-          {!input && !step.output && <IoSection title="" body={step.status === "running" ? "Waiting for the result…" : "No details."} />}
+          {sent && <IoSection title="IN" body={sent} />}
+          {sent && got && <div style={{ height: 1, backgroundColor: p.line2 }} />}
+          {got && <IoSection title="OUT" body={capped(got)} onOpen={() => onOpenText(title, got)} />}
+          {!sent && !got && <IoSection title="" body={step.status === "running" ? "Waiting for the result…" : "No details."} />}
         </div>
       )}
     </ChainOfThoughtStep>
@@ -167,14 +212,14 @@ function ThoughtStep({ text, startedAt, endedAt }: { readonly text: string; read
   );
 }
 
-function StepView({ block, onOpen }: { readonly block: Block; readonly onOpen: (procedure: string) => void }): ReactElement {
+function StepView({ block, onOpen, onOpenText }: { readonly block: Block; readonly onOpen: (procedure: string) => void; readonly onOpenText: (title: string, text: string) => void }): ReactElement {
   switch (block.kind) {
     case "text":
       return <ChainOfThoughtStep icon={null} label={block.text.trim()} status="complete" />;
     case "thought":
       return <ThoughtStep text={block.text} startedAt={block.startedAt} endedAt={block.endedAt} />;
     case "tool":
-      return <ToolStep step={block.step} onOpen={onOpen} />;
+      return <ToolStep step={block.step} onOpen={onOpen} onOpenText={onOpenText} />;
     default: {
       const unhandled: never = block;
       return unhandled;
@@ -233,11 +278,12 @@ function TurnFooter({ turn, last, onRetry }: { readonly turn: AgentTurn; readonl
   );
 }
 
-function AgentReply({ turn, last, onRetry, onOpen }: {
+function AgentReply({ turn, last, onRetry, onOpen, onOpenText }: {
   readonly turn: AgentTurn;
   readonly last: boolean;
   readonly onRetry: () => void;
   readonly onOpen: (procedure: string) => void;
+  readonly onOpenText: (title: string, text: string) => void;
 }): ReactElement {
   const { p } = useTheme();
   const { showThinking, colorScheme } = useSettings().settings;
@@ -265,7 +311,7 @@ function AgentReply({ turn, last, onRetry, onOpen }: {
         <ChainOfThought label={chainLabel(turn, steps.length, now)} open={open} onToggle={() => setOpened(!open)}>
           {steps.map((block, ix) => (
             <div key={block.kind === "tool" ? block.step.id : `${block.kind}-${ix}`} {...menuOn(() => menuFor(block))} style={{ display: "flex", flexDirection: "column" }}>
-              <StepView block={block} onOpen={onOpen} />
+              <StepView block={block} onOpen={onOpen} onOpenText={onOpenText} />
             </div>
           ))}
         </ChainOfThought>
@@ -393,6 +439,7 @@ export type MessageActions = {
   readonly onAnswer: (choice: PermissionChoice | null) => void;
   readonly onRetry: () => void;
   readonly onOpen: (procedure: string) => void;
+  readonly onOpenText: (title: string, text: string) => void;
 };
 
 export function MessageView({ message, agentName, last, actions }: {
@@ -404,9 +451,9 @@ export function MessageView({ message, agentName, last, actions }: {
   const { p } = useTheme();
   switch (message.kind) {
     case "user":
-      return <UserMessage text={message.text} at={message.at} />;
+      return <UserMessage text={message.text} at={message.at} attachments={message.attachments ?? []} />;
     case "agent":
-      return <AgentReply turn={message} last={last} onRetry={actions.onRetry} onOpen={actions.onOpen} />;
+      return <AgentReply turn={message} last={last} onRetry={actions.onRetry} onOpen={actions.onOpen} onOpenText={actions.onOpenText} />;
     case "permission":
       return <PermissionCard message={message} agentName={agentName} onAnswer={actions.onAnswer} />;
     case "note":
