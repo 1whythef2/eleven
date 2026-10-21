@@ -92,9 +92,22 @@ function findRizin(): string | null {
 
 const BUNDLED_NPX = [join(RESOURCES, "node", "lib", "node_modules", "npm", "bin", "npx-cli.js"), join(RESOURCES, "node", "node_modules", "npm", "bin", "npx-cli.js")].find((path) => existsSync(path)) ?? "";
 
+/** Node refuses to spawn a .cmd without a shell since CVE-2024-27980, so on Windows run npx-cli.js with node instead of npx.cmd. */
+function windowsNpx(): { readonly command: string; readonly args: readonly string[] } | null {
+  const cmd = findOnPathOf("npx.cmd");
+  if (cmd) {
+    const dir = dirname(cmd);
+    const cli = join(dir, "node_modules", "npm", "bin", "npx-cli.js");
+    const node = join(dir, exe("node"));
+    if (existsSync(cli)) return { command: existsSync(node) ? node : nodeCommand(), args: [cli] };
+  }
+  return BUNDLED_NPX ? { command: nodeCommand(), args: [BUNDLED_NPX] } : null;
+}
+
 /** How to run npx: the user's own, else the npm that ships inside Eleven, so npx agents start with nothing installed. */
 export function npxCommand(): { readonly command: string; readonly args: readonly string[] } {
-  const own = findOnPathOf(OS === "windows" ? "npx.cmd" : "npx");
+  if (OS === "windows") return windowsNpx() ?? { command: "npx", args: [] };
+  const own = findOnPathOf("npx");
   if (own || !BUNDLED_NPX) return { command: own ?? "npx", args: [] };
   return { command: nodeCommand(), args: [BUNDLED_NPX] };
 }
