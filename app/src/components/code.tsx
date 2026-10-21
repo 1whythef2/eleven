@@ -233,3 +233,8 @@ export function CodeView({ code, syntax = "c", focusLine = -1, onLink = null }: 
     </div>
   );
 }
+
+/** The language alias the native code element knows for a view's grammar. */
+export function codeLanguage(syntax: Syntax): string {
+  return syntax === "c" ? "c" : syntax === "asm" ? "asm" : "";
+}

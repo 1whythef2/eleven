@@ -2,8 +2,9 @@ import type { EventPayload, StyleDesc } from "@gpuix/react";
 import { type ReactElement, useEffect, useState } from "react";
 
 import { Shimmer } from "../../chat/Conversation";
-import { type Syntax, tokenize } from "../../components/code";
+import { codeLanguage, type Syntax, tokenize } from "../../components/code";
 import type { AgentIcon } from "../../agents/icons";
+import { FencedCode } from "../../components/Markdown";
 import { AgentLogo, Icon } from "../../components/ui";
 import { inlineRuns, pieces, proseBlocks, type Quote } from "../../engine/ask";
 import { accept, decline, undo } from "../../engine/history";
@@ -27,13 +28,6 @@ import { askInThread, forgetThread, type Turn, turnsOf, useTurns, warmFor } from
 const BAR_HEIGHT = 30;
 const SHADOW = { offsetX: 0, offsetY: 8, blurRadius: 24, spreadRadius: 0, color: "rgba(0,0,0,0.45)" };
 
-function fenceSyntax(fence: string, fallback: Syntax): Syntax {
-  if (/^(c|h|cpp|c\+\+|objc)$/i.test(fence)) return "c";
-  if (/^ptx$/i.test(fence)) return "ptx";
-  if (/^(asm|s|x86|arm|arm64|nasm)$/i.test(fence)) return "asm";
-  return fence ? "code" : fallback;
-}
-
 function Colored({ text, syntax }: { readonly text: string; readonly syntax: Syntax }): ReactElement {
   const { p } = useTheme();
   const { settings } = useSettings();
@@ -54,23 +48,12 @@ function Prose({ text, syntax, color }: { readonly text: string; readonly syntax
   );
 }
 
-function CodeBlock({ fence, lines, syntax }: { readonly fence: string; readonly lines: readonly string[]; readonly syntax: Syntax }): ReactElement {
-  const { p } = useTheme();
-  const look = useCodeLook();
-  return (
-    <div style={{ display: "flex", flexDirection: "column", paddingTop: 8, paddingBottom: 8, borderRadius: 8, backgroundColor: p.deep, fontFamily: look.family, fontSize: Math.min(look.size, 12), lineHeight: 19, userSelect: "text" }}>
-      {fence && <div style={{ paddingLeft: 12, paddingBottom: 4, fontSize: 11, color: p.faint }}>{fence.toUpperCase()}</div>}
-      {lines.map((line, ix) => <div key={ix} style={{ display: "flex", paddingLeft: 12, paddingRight: 12 }}><Colored text={line} syntax={syntax} /></div>)}
-    </div>
-  );
-}
-
 function Answer({ text, syntax, color }: { readonly text: string; readonly syntax: Syntax; readonly color: string }): ReactElement {
   const { p } = useTheme();
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       {pieces(text).flatMap((piece, ix) => (piece.kind === "code"
-        ? [<CodeBlock key={ix} fence={piece.fence} lines={piece.lines} syntax={fenceSyntax(piece.fence, syntax)} />]
+        ? [<FencedCode key={ix} fence={piece.fence} lines={piece.lines} language={codeLanguage(syntax)} />]
         : proseBlocks(piece.text).map((block, n) => (block.kind === "para"
           ? <Prose key={`${ix}.${n}`} text={block.text} syntax={syntax} color={color} />
           : (

@@ -48,6 +48,42 @@ function RoundIcon({ icon, size, label, ring = false, onClick }: { readonly icon
   );
 }
 
+function AddRow({ icon, label, onPick }: { readonly icon: string; readonly label: string; readonly onPick: () => void }): ReactElement {
+  const { p } = useTheme();
+  return (
+    <div onClick={onPick} role="menuitem" aria-label={label} style={{ display: "flex", alignItems: "center", gap: 8, height: 30, flexShrink: 0, paddingLeft: 8, paddingRight: 8, borderRadius: 6, fontSize: 12.5, color: p.text, cursor: "pointer", hover: { opacity: 0.72 } }}>
+      <Icon name={icon} size={14} color={p.text3} />
+      <div style={{ whiteSpace: "nowrap" }}>{label}</div>
+    </div>
+  );
+}
+
+/** One plus for everything you can bring in: the app or binary to work on, or a file for this message. */
+function AddButton({ ring, onOpenFile, onAttachFile }: { readonly ring: boolean; readonly onOpenFile: () => void; readonly onAttachFile: () => void }): ReactElement {
+  const { p } = useTheme();
+  const menu = usePopover();
+  const box = ring ? 32 : 30;
+  const pick = (run: () => void): void => {
+    menu.close();
+    run();
+  };
+  return (
+    <div onMouseDown={menu.onTriggerDown} style={{ display: "flex", position: "relative", flexShrink: 0 }}>
+      <div onClick={menu.onTriggerClick} role="button" aria-label="Add a file" style={{ display: "flex", alignItems: "center", justifyContent: "center", width: box, height: box, borderRadius: box / 2, borderWidth: 1, borderColor: ring ? p.line2 : "transparent", cursor: "pointer", hover: { opacity: 0.72 }, ...(menu.open ? { backgroundColor: p.fill2 } : {}) }}>
+        <Icon name="new" size={ring ? 15 : 16} color={p.text3} />
+      </div>
+      {menu.open && (
+        <Popover side="top" align="start" onDismiss={menu.dismiss}>
+          <MenuSurface width={252}>
+            <AddRow icon="folder" label="Open an app or binary" onPick={() => pick(onOpenFile)} />
+            <AddRow icon="attach" label="Attach a file to this message" onPick={() => pick(onAttachFile)} />
+          </MenuSurface>
+        </Popover>
+      )}
+    </div>
+  );
+}
+
 function SendButton({ stopping, ready, blocked, large = false, onClick }: { readonly stopping: boolean; readonly ready: boolean; readonly blocked: boolean; readonly large?: boolean; readonly onClick: () => void }): ReactElement {
   const { p } = useTheme();
   const box = large ? 34 : 32;
@@ -337,8 +373,7 @@ export function Composer({ place, target, agents, thread, onAttach, onDetach, on
           style={{ paddingTop: 14, paddingLeft: 16, paddingRight: 16, paddingBottom: 6, fontSize: place === "landing" ? 15 : 14, color: p.text, backgroundColor: p.win, borderTopLeftRadius: 19, borderTopRightRadius: 19 }}
         />
         <Row gap={landing ? 8 : 4} style={landing ? { paddingTop: 6, paddingLeft: 10, paddingRight: 10, paddingBottom: 10 } : { paddingTop: 4, paddingLeft: 8, paddingRight: 8, paddingBottom: 8 }}>
-          <RoundIcon icon="new" size={landing ? 15 : 16} label="Add a file" ring={landing} onClick={onAttach} />
-          <RoundIcon icon="attach" size={15} label="Attach an image or file" ring={landing} onClick={() => void attachFile()} />
+          <AddButton ring={landing} onOpenFile={onAttach} onAttachFile={() => void attachFile()} />
           <RoundIcon icon="slash" size={15} label="Modes, skills and files" onClick={() => setPaletteOpen(true)} />
           {landing && !thread.state.options.some((option) => option.category === "mode") && <RunCodePill compact={false} />}
           <Settings thread={thread} pill={landing} compact={place === "dock"} />

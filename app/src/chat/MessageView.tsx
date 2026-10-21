@@ -5,13 +5,12 @@ import { isToolId, toolLabel } from "../agents/describe";
 import { SentAttachments } from "./Attachments";
 import { type MenuEntry, menuOn } from "../components/ContextMenu";
 import { JumpButton, SuggestionCard, Tooltip } from "../components/kit";
+import { Markdown } from "../components/Markdown";
 import type { PermissionChoice, ToolKind } from "../agents/events";
 import { stringField } from "../lib/guards";
 import { seconds, useNow } from "../lib/useNow";
-import { syntaxFor, useCodeLook } from "../settings/look";
 import { useSettings } from "../settings/store";
-import { openLink } from "../settings/system";
-import { MONO, nativeTheme, useTheme } from "../theme";
+import { MONO, useTheme } from "../theme";
 import { Icon, Row, Spacer } from "../components/ui";
 import type { Block, Message, Step } from "./thread";
 import { ChainOfThought, ChainOfThoughtResults, ChainOfThoughtStep } from "./ChainOfThought";
@@ -46,14 +45,12 @@ function IconAction({ icon, label, onClick }: { readonly icon: string; readonly 
 function UserMessage({ text: sent, at, attachments }: { readonly text: string; readonly at: number; readonly attachments: readonly Attachment[] }): ReactElement {
   const { p } = useTheme();
   const text = shownText(sent);
-  const { colorScheme } = useSettings().settings;
-  const look = useCodeLook();
   const [hovered, setHovered] = useState(false);
   return (
     <div onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
       <div {...menuOn(() => [{ kind: "action", label: "Copy", icon: "copy", run: () => copyText(text) }])} style={{ display: "flex", flexDirection: "column", gap: 10, userSelect: "text", paddingTop: 10, paddingBottom: 10, paddingLeft: 14, paddingRight: 14, borderWidth: 1, borderColor: p.line2, borderRadius: 12, backgroundColor: p.raised }}>
         <SentAttachments files={attachments} />
-        <markdown source={text.trim()} theme={nativeTheme(p, look, syntaxFor(colorScheme, p))} onLinkClick={(event) => event.value && openLink(event.value)} style={{ color: p.text }} />
+        <Markdown source={text.trim()} color={p.text} />
       </div>
       <Row gap={2} style={{ height: 24, opacity: hovered ? 1 : 0 }}>
         <Spacer />
@@ -286,8 +283,7 @@ function AgentReply({ turn, last, onRetry, onOpen, onOpenText }: {
   readonly onOpenText: (title: string, text: string) => void;
 }): ReactElement {
   const { p } = useTheme();
-  const { showThinking, colorScheme } = useSettings().settings;
-  const look = useCodeLook();
+  const { showThinking } = useSettings().settings;
   const [opened, setOpened] = useState<boolean | null>(null);
   const running = turn.outcome === "running";
   const now = useNow(running);
@@ -318,7 +314,7 @@ function AgentReply({ turn, last, onRetry, onOpen, onOpenText }: {
       )}
       {answer.map((block, ix) => block.kind === "text" && (
         <div key={`answer-${ix}`} {...menuOn(() => menuFor(block))} style={{ display: "flex", flexDirection: "column", userSelect: "text" }}>
-          <markdown source={block.text.trim()} theme={nativeTheme(p, look, syntaxFor(colorScheme, p))} onLinkClick={(event) => event.value && openLink(event.value)} style={{ color: p.text2 }} />
+          <Markdown source={block.text.trim()} color={p.text2} />
         </div>
       ))}
       <Sources sources={sourcesOf(blocks)} />
