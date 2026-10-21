@@ -38,9 +38,15 @@ export type AgentEntry = {
 
 export const CUSTOM_AGENT_ID = "custom-agent";
 
+/** Splits a typed command into words, keeping "quoted paths" with spaces in one piece. */
+function commandWords(command: string): readonly string[] {
+  const words = command.match(/"[^"]*"|'[^']*'|\S+/g) ?? [];
+  return words.map((word) => (word.length > 1 && (word[0] === '"' || word[0] === "'") && word.at(-1) === word[0] ? word.slice(1, -1) : word));
+}
+
 /** The ACP agent command typed in Settings, such as `my-agent --acp`, as "Your agent". */
 export function customAgentEntry(command: string): AgentEntry | null {
-  const [program, ...args] = command.trim().split(/\s+/).filter(Boolean);
+  const [program, ...args] = commandWords(command.trim());
   if (!program) return null;
   return { id: CUSTOM_AGENT_ID, name: "Your agent", description: command.trim(), version: "local", iconUrl: null, distribution: { kind: "command", command: program, args } };
 }
