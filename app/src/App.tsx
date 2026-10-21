@@ -111,6 +111,9 @@ export function App({ initial }: { readonly initial: Target | null }): ReactElem
     if (renderer && "setWindowBlurRadius" in renderer && typeof renderer.setWindowBlurRadius === "function") renderer.setWindowBlurRadius(frostRadius(frost));
   }, [renderer, frost]);
   useEffect(() => {
+    if (process.env.ELEVEN_FRAMES && typeof renderer?.setDebugFrameOverlay === "function") renderer.setDebugFrameOverlay("full");
+  }, [renderer]);
+  useEffect(() => {
     if (!target) return;
     if (hasCode(target) && !autoOpens(openWorkbench, chatting)) return;
     if (screen.kind !== "home" && screen.kind !== "workbench") return;
