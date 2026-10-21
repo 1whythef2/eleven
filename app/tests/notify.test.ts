@@ -32,7 +32,7 @@ test("notify: a permission request offers one way to allow and one way to refuse
   const note = noteFor({ kind: "agentNeedsYou", chat, agent: "Claude Code", ask: 3, tool: "Run xcrun lldb", input: {}, choices });
   expect(note.tag).toBe("ask:c1:3");
   expect(note.title).toBe("Claude Code needs your OK");
-  expect(note.body).toBe("Run xcrun lldb in Signal");
+  expect(note.body).toBe("Run a command in Signal");
   expect(note.actions).toEqual([{ id: "always", label: "Always allow" }, { id: "no", label: "Reject" }]);
 });
 
