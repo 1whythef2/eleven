@@ -5,6 +5,7 @@ import { askQuietly, type QuietAsk, type RewriteProgress } from "../engine/rewri
 import type { SwiftType } from "../engine/swiftTypes";
 import { errorMessage, isRecord, stringField } from "../lib/guards";
 import { cacheRoot } from "../lib/platform";
+import { t } from "../i18n";
 import type { Fn, TableRow } from "./model";
 import { originOf } from "./sidebar/model";
 import { type SourceFiles, stemOf, traceStatic } from "./sources";
@@ -12,15 +13,29 @@ import { type SourceFiles, stemOf, traceStatic } from "./sources";
 /** How a file got its place: its path is in the binary, it sits next to files that are, or the agent grouped it. */
 export type Placement = "exact" | "neighbour" | "guess";
 
+const PLACEMENTS: readonly Placement[] = ["exact", "neighbour", "guess"];
+
 export type ArrangedFile = {
   /** The key the source tab opens it by: the path as the binary spells it, `<Type>.swift`, or the agent's name. */
   readonly key: string;
   /** Where it shows in the tree, relative to the project folder. */
   readonly path: string;
   readonly placement: Placement;
-  readonly reason: string;
+  readonly reason: readonly Why[];
   readonly fns: readonly string[];
 };
+
+/** One part of why a file sits where it does, kept as data so it reads in the language picked when shown. */
+export type Why =
+  | { readonly kind: "path"; readonly path: string }
+  | { readonly kind: "type"; readonly type: string }
+  | { readonly kind: "neighbours"; readonly count: number }
+  | { readonly kind: "beside"; readonly file: string }
+  | { readonly kind: "grouped" }
+  | { readonly kind: "folder"; readonly folder: string; readonly said: string }
+  | { readonly kind: "said"; readonly text: string };
+
+const WHY_KINDS: readonly Why["kind"][] = ["path", "type", "neighbours", "beside", "grouped", "folder", "said"];
 
 export type Arrangement = { readonly files: readonly ArrangedFile[]; readonly unplaced: readonly string[] };
 
@@ -42,21 +57,49 @@ export function failureReason(message: string): FailReason {
 
 /** What happened and what to do, in one or two plain sentences, for the card under Source files. */
 export function failureText(reason: FailReason, agent: string, left: number): string {
-  const rest = `the other ${left.toLocaleString()} ${left === 1 ? "function" : "functions"}`;
+  const rest = left === 1 ? t("workbench.arrange.otherOne") : t("workbench.arrange.others", { count: left.toLocaleString() });
   switch (reason) {
     case "signin":
-      return `${agent} needs you to sign in again, so it couldn\u2019t place ${rest}. The files the binary places are kept.`;
+      return t("workbench.arrange.signin", { agent, rest });
     case "limit":
-      return `${agent} has reached its usage limit for now, so it couldn\u2019t place ${rest}. Try another agent, or again later.`;
+      return t("workbench.arrange.limit", { agent, rest });
     case "stopped":
-      return `${agent} stopped before it finished, so it couldn\u2019t place ${rest}. Try again to place them.`;
+      return t("workbench.arrange.stopped", { agent, rest });
     case "offline":
-      return `Eleven can\u2019t reach ${agent}, so it couldn\u2019t place ${rest}. Check your connection, then try again.`;
+      return t("workbench.arrange.offline", { agent, rest });
     default: {
       const unhandled: never = reason;
       return unhandled;
     }
   }
+}
+
+function whyText(why: Why): string {
+  switch (why.kind) {
+    case "path":
+      return t("workbench.arrange.why.path", { path: why.path });
+    case "type":
+      return t("workbench.arrange.why.type", { type: why.type });
+    case "neighbours":
+      return why.count === 1 ? t("workbench.arrange.why.neighbour") : t("workbench.arrange.why.neighbours", { count: why.count.toLocaleString() });
+    case "beside":
+      return t("workbench.arrange.why.beside", { file: why.file });
+    case "grouped":
+      return t("workbench.arrange.why.grouped");
+    case "folder":
+      return why.said ? t("workbench.arrange.why.folderBecause", { folder: why.folder, reason: why.said }) : t("workbench.arrange.why.folder", { folder: why.folder });
+    case "said":
+      return why.text;
+    default: {
+      const unhandled: never = why;
+      return unhandled;
+    }
+  }
+}
+
+/** Why a file sits where it does, in the current language; the agent's own words stay as it wrote them. */
+export function reasonText(reason: readonly Why[]): string {
+  return reason.map(whyText).reduce((first, next) => (first ? t("workbench.arrange.why.then", { first, next }) : next), "");
 }
 
 /** An arrangement, and why the agent couldn't finish it when it couldn't; such a run isn't saved, so the next one tries again. */
@@ -88,17 +131,17 @@ function relative(path: string, prefix: string): string {
 export function arrangeFromEvidence(functions: readonly Fn[], strings: readonly TableRow[], types: readonly SwiftType[], sources: SourceFiles): Arrangement {
   const yours = functions.filter((fn) => originOf(fn, fn.name) === "yours");
   const owner = new Map<string, string>();
-  const files = new Map<string, { key: string; path: string; placement: Placement; reason: string }>();
+  const files = new Map<string, { key: string; path: string; placement: Placement; reason: readonly Why[] }>();
   const prefix = commonPrefix(sources.paths);
   for (const path of sources.paths) {
     const trace = traceStatic(path, false, types, yours, strings);
-    files.set(path, { key: path, path: relative(path, prefix), placement: "exact", reason: `Its path is written in the binary: ${path}` });
+    files.set(path, { key: path, path: relative(path, prefix), placement: "exact", reason: [{ kind: "path", path }] });
     for (const fn of trace.fns) if (!owner.has(fn.addr)) owner.set(fn.addr, path);
   }
   for (const guess of sources.guessed) {
     const trace = traceStatic(guess.file, true, types, yours, strings);
     if (trace.fns.length === 0) continue;
-    files.set(guess.file, { key: guess.file, path: guess.file, placement: "neighbour", reason: `Named after the type ${guess.type}, which no path in the binary names.` });
+    files.set(guess.file, { key: guess.file, path: guess.file, placement: "neighbour", reason: [{ kind: "type", type: guess.type }] });
     for (const fn of trace.fns) if (!owner.has(fn.addr)) owner.set(fn.addr, guess.file);
   }
   const order = sortedByAddress(yours);
@@ -106,7 +149,7 @@ export function arrangeFromEvidence(functions: readonly Fn[], strings: readonly 
   for (const [key, count] of filled) {
     const file = files.get(key);
     if (!file || count === 0) continue;
-    file.reason = `${file.reason} ${count.toLocaleString()} more ${count === 1 ? "function sits" : "functions sit"} right next to its code in the binary.`;
+    file.reason = [...file.reason, { kind: "neighbours", count }];
   }
   placeGuessedFolders(files, order, owner);
   const byFile = new Map<string, string[]>();
@@ -148,7 +191,7 @@ function fillBetween(order: readonly Fn[], owner: Map<string, string>): Readonly
 }
 
 /** A file named after its type has no folder of its own; it goes in the folder of the file its code sits beside. */
-function placeGuessedFolders(files: Map<string, { key: string; path: string; placement: Placement; reason: string }>, order: readonly Fn[], owner: ReadonlyMap<string, string>): void {
+function placeGuessedFolders(files: Map<string, { key: string; path: string; placement: Placement; reason: readonly Why[] }>, order: readonly Fn[], owner: ReadonlyMap<string, string>): void {
   for (const file of files.values()) {
     if (file.placement !== "neighbour") continue;
     const at = order.findIndex((fn) => owner.get(fn.addr) === file.key);
@@ -157,7 +200,7 @@ function placeGuessedFolders(files: Map<string, { key: string; path: string; pla
     const folder = near ? dirname(files.get(near)?.path ?? "") : ".";
     if (folder !== ".") {
       file.path = `${folder}/${file.path}`;
-      file.reason = `${file.reason} It sits next to ${near?.split("/").pop() ?? ""} in the binary.`;
+      file.reason = [...file.reason, { kind: "beside", file: near?.split("/").pop() ?? "" }];
     }
   }
 }
@@ -200,7 +243,8 @@ export function agentAnswer(reply: string, asked: ReadonlySet<string>, files: Re
   const groups = groupsRaw.flatMap((item): ArrangedFile[] => {
     if (!isRecord(item)) return [];
     const file = stringField(item, "file")?.replace(/^\/+/, "");
-    const reason = stringField(item, "reason") ?? "Grouped by the agent.";
+    const said = stringField(item, "reason");
+    const reason: readonly Why[] = said ? [{ kind: "said", text: said }] : [{ kind: "grouped" }];
     const fns = Array.isArray(item.functions) ? item.functions.filter((addr): addr is string => typeof addr === "string" && asked.has(addr)) : [];
     return file && fns.length > 0 ? [{ key: file, path: file, placement: "guess", reason, fns }] : [];
   });
@@ -220,7 +264,7 @@ function refolder(files: readonly ArrangedFile[], folders: AgentAnswer["folders"
   return files.map((file) => {
     const name = file.path.split("/").pop() ?? file.path;
     const moved = file.placement !== "exact" ? folders.get(name) : undefined;
-    return moved ? { ...file, path: `${moved.folder}/${name}`, reason: `${file.reason} The agent suggested the ${moved.folder} folder${moved.reason ? `: ${moved.reason}` : "."}` } : file;
+    return moved ? { ...file, path: `${moved.folder}/${name}`, reason: [...file.reason, { kind: "folder", folder: moved.folder, said: moved.reason }] } : file;
   });
 }
 
@@ -241,14 +285,46 @@ function savedFile(projectId: string): string {
   return join(cacheRoot(), "arrange", `${projectId}.json`);
 }
 
+function isSavedFile(value: unknown): boolean {
+  return isRecord(value) && typeof value.key === "string" && typeof value.path === "string" && PLACEMENTS.some((placement) => placement === value.placement) && Array.isArray(value.fns) && value.fns.every((fn) => typeof fn === "string");
+}
+
 function isArrangement(value: unknown): value is Arrangement {
-  return isRecord(value) && Array.isArray(value.files) && Array.isArray(value.unplaced);
+  return isRecord(value) && Array.isArray(value.files) && value.files.every(isSavedFile) && Array.isArray(value.unplaced) && value.unplaced.every((fn) => typeof fn === "string");
+}
+
+function isWhy(value: unknown): value is Why {
+  if (!isRecord(value) || !WHY_KINDS.some((kind) => kind === value.kind)) return false;
+  switch (value.kind) {
+    case "path":
+      return typeof value.path === "string";
+    case "type":
+      return typeof value.type === "string";
+    case "neighbours":
+      return typeof value.count === "number";
+    case "beside":
+      return typeof value.file === "string";
+    case "grouped":
+      return true;
+    case "folder":
+      return typeof value.folder === "string" && typeof value.said === "string";
+    case "said":
+      return typeof value.text === "string";
+    default:
+      return false;
+  }
+}
+
+/** Older saves hold the reason as one English sentence, shown as written. */
+function savedReason(raw: unknown): readonly Why[] {
+  if (typeof raw === "string") return raw ? [{ kind: "said", text: raw }] : [];
+  return Array.isArray(raw) ? raw.filter(isWhy) : [];
 }
 
 export async function savedArrangement(projectId: string): Promise<Arrangement | null> {
   try {
     const parsed: unknown = JSON.parse(await readFile(savedFile(projectId), "utf8"));
-    return isArrangement(parsed) ? parsed : null;
+    return isArrangement(parsed) ? { ...parsed, files: parsed.files.map((file) => ({ ...file, reason: savedReason(file.reason) })) } : null;
   } catch {
     return null;
   }
@@ -273,14 +349,14 @@ export async function arrange(input: {
 }): Promise<ArrangeResult> {
   const { ask, functions, sources, onStep } = input;
   const paths = sources.paths.length;
-  const found = `Found ${paths.toLocaleString()} file ${paths === 1 ? "path" : "paths"} and ${input.types.length.toLocaleString()} Swift types`;
-  onStep([{ label: found, done: true }, { label: "Placing functions next to them", done: false }]);
+  const found = t(paths === 1 ? "workbench.arrange.foundOne" : "workbench.arrange.found", { paths: paths.toLocaleString(), types: input.types.length.toLocaleString() });
+  onStep([{ label: found, done: true }, { label: t("workbench.arrange.placing"), done: false }]);
   const base = arrangeFromEvidence(functions, input.strings, input.types, sources);
   input.onEvidence?.(base);
   const placedCount = base.files.reduce((sum, file) => sum + file.fns.length, 0);
   const evidenceSteps: readonly ArrangeStep[] = [
     { label: found, done: true },
-    { label: `Placed ${placedCount.toLocaleString()} functions next to them`, done: true },
+    { label: t("workbench.arrange.placed", { count: placedCount.toLocaleString() }), done: true },
   ];
   const leftFns = base.unplaced.flatMap((addr) => functions.find((fn) => fn.addr === addr) ?? []).filter((fn) => !/^(?:thunk_)?(?:FUN|sub|fcn)_/.test(fn.name));
   const askFns = leftFns.length >= MIN_FNS_FOR_AGENT ? leftFns.slice(0, MAX_FOR_AGENT) : [];
@@ -288,13 +364,13 @@ export async function arrange(input: {
   let result = base;
   let agentFailed: string | null = null;
   if (askFns.length > 0 || askFolders) {
-    onStep([...evidenceSteps, { label: askFns.length > 0 ? `${ask.agent.name} is grouping the last ${askFns.length.toLocaleString()}` : `${ask.agent.name} is sorting files into folders`, done: false }]);
+    onStep([...evidenceSteps, { label: askFns.length > 0 ? t("workbench.arrange.grouping", { agent: ask.agent.name, count: askFns.length.toLocaleString() }) : t("workbench.arrange.sorting", { agent: ask.agent.name }), done: false }]);
     try {
       const reply = await askQuietly(ask, arrangePrompt(input.binaryName, base.files, askFns), input.onProgress ?? (() => {}));
       const answer = agentAnswer(reply, new Set(askFns.map((fn) => fn.addr)), new Set(base.files.map((file) => file.path.split("/").pop() ?? file.path)));
       const merged = merge(base, answer.groups);
       result = { ...merged, files: refolder(merged.files, answer.folders).slice().sort((x, y) => x.path.localeCompare(y.path)) };
-      onStep([...evidenceSteps, { label: `${ask.agent.name} sorted the rest`, done: true }]);
+      onStep([...evidenceSteps, { label: t("workbench.arrange.sorted", { agent: ask.agent.name }), done: true }]);
     } catch (err) {
       agentFailed = errorMessage(err);
     }

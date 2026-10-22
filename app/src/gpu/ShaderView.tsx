@@ -4,6 +4,7 @@ import { type Syntax as Grammar, tokenize } from "../components/code";
 import { type Syntax, syntaxFor, useCodeLook } from "../settings/look";
 import { useSettings } from "../settings/store";
 import { type Palette, SANS, scrollbar, useTheme } from "../theme";
+import { type PlainId, t } from "../i18n";
 import { type AskRow, PinDot, useAskRows } from "../workbench/ask/AskThread";
 import type { AskPlace } from "../workbench/ask/place";
 import type { KernelNote } from "./kernelRewrite";
@@ -52,7 +53,7 @@ function IrLine({ line, number, grammar, note, surprise, row }: { readonly line:
   const pick = row ? { onClick: row.pick } : {};
   const tint = row?.picked ? { backgroundColor: p.sel2 } : surprise ? { backgroundColor: p.fill } : {};
   const shown = (
-    <div role="row" aria-label={`Line ${number}`} aria-selected={row?.picked ?? false} style={{ display: "flex", alignItems: "flex-start", flexShrink: 0, userSelect: "text", ...tint }}>
+    <div role="row" aria-label={t("workbench.view.line", { number })} aria-selected={row?.picked ?? false} style={{ display: "flex", alignItems: "flex-start", flexShrink: 0, userSelect: "text", ...tint }}>
       {lineNumbers
         ? <div {...pick} style={{ position: "relative", display: "flex", justifyContent: "flex-end", width: 62, flexShrink: 0, paddingRight: 14, color: row?.picked ? p.text : p.gutter, userSelect: "none" }}>{row?.pinned && <PinDot />}{String(number)}</div>
         : <div {...pick} style={{ position: "relative", width: 18, flexShrink: 0 }}>{row?.pinned && <PinDot />}</div>}
@@ -82,9 +83,9 @@ function LoadedByCard({ loadedBy, onOpen }: { readonly loadedBy: Loaded<LoadedBy
   const { p } = useTheme();
   const look = useCodeLook();
   const body = ((): ReactElement => {
-    if (loadedBy.kind === "loading") return <div style={{ color: p.muted, ...text(12) }}>Finding the code that loads it…</div>;
-    if (loadedBy.kind === "failed") return <div style={{ color: p.muted, ...text(12) }}>{`Couldn't search the app's code. ${loadedBy.message}`}</div>;
-    if (!loadedBy.value) return <div style={{ color: p.muted, ...text(12) }}>Nothing in the app names this shader directly.</div>;
+    if (loadedBy.kind === "loading") return <div style={{ color: p.muted, ...text(12) }}>{t("gpu.loadedBy.finding")}</div>;
+    if (loadedBy.kind === "failed") return <div style={{ color: p.muted, ...text(12) }}>{t("gpu.loadedBy.failed", { error: loadedBy.message })}</div>;
+    if (!loadedBy.value) return <div style={{ color: p.muted, ...text(12) }}>{t("gpu.loadedBy.none")}</div>;
     const { symbol } = loadedBy.value;
     return (
       <>
@@ -95,13 +96,54 @@ function LoadedByCard({ loadedBy, onOpen }: { readonly loadedBy: Loaded<LoadedBy
   })();
   return (
     <div style={{ display: "flex", flexDirection: "column", padding: 12, borderWidth: 1, borderColor: p.line3, borderRadius: 10, backgroundColor: p.raised }}>
-      <div style={{ marginBottom: 4, color: p.muted, ...text(11.5) }}>Loaded by</div>
+      <div style={{ marginBottom: 4, color: p.muted, ...text(11.5) }}>{t("gpu.loadedBy")}</div>
       {body}
     </div>
   );
 }
 
 const CLIP = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } as const;
+
+/** The CUDA and HIP readers name a kernel's stats in English, which other code matches on, so they read in the current language only here. */
+const STAT_NAME: ReadonlyMap<string, PlainId> = new Map([
+  ["Registers", "gpu.stat.registers"],
+  ["Shared memory", "gpu.stat.sharedMemory"],
+  ["Code size", "gpu.stat.codeSize"],
+  ["Parameter block", "gpu.stat.paramBlock"],
+  ["Built for", "gpu.stat.builtFor"],
+  ["Vector registers", "gpu.stat.vectorRegisters"],
+  ["Scalar registers", "gpu.stat.scalarRegisters"],
+  ["Local memory (LDS)", "gpu.stat.lds"],
+  ["Scratch", "gpu.stat.scratch"],
+  ["Wavefront", "gpu.stat.wavefront"],
+  ["Largest workgroup", "gpu.stat.largestWorkgroup"],
+]);
+
+function statValue(value: string): string {
+  const [, count, unit] = /^([\d,]+) (.+)$/.exec(value) ?? [];
+  if (count === undefined) return value;
+  switch (unit) {
+    case "per thread":
+      return t("gpu.stat.perThread", { count });
+    case "per wave":
+      return t("gpu.stat.perWave", { count });
+    case "bytes":
+      return t("gpu.stat.bytes", { count });
+    case "bytes per thread":
+      return t("gpu.stat.bytesPerThread", { count });
+    case "lanes":
+      return t("gpu.stat.lanes", { count });
+    case "threads":
+      return t("gpu.stat.threads", { count });
+    default:
+      return value;
+  }
+}
+
+function statText(stat: Binding): Binding {
+  const name = STAT_NAME.get(stat.slot);
+  return { slot: name ? t(name) : stat.slot, type: statValue(stat.type) };
+}
 
 function Bindings({ title, bindings, mono }: { readonly title: string; readonly bindings: readonly Binding[]; readonly mono: boolean }): ReactElement {
   const { p } = useTheme();
@@ -123,9 +165,9 @@ function IrBody({ ir, name, grammar, notes, ask }: { readonly ir: Loaded<string>
   const { p } = useTheme();
   switch (ir.kind) {
     case "loading":
-      return <div style={{ paddingLeft: 18, fontFamily: SANS, color: p.muted }}>{`Reading ${name}…`}</div>;
+      return <div style={{ paddingLeft: 18, fontFamily: SANS, color: p.muted }}>{t("gpu.reading", { name })}</div>;
     case "failed":
-      return <div style={{ paddingLeft: 18, fontFamily: SANS, color: p.error }}>{`Couldn't read ${name}. ${ir.message}`}</div>;
+      return <div style={{ paddingLeft: 18, fontFamily: SANS, color: p.error }}>{t("gpu.readFailed", { name, error: ir.message })}</div>;
     case "ready":
       return <CodeLinesOf code={ir.value} grammar={grammar} notes={notes} ask={ask} />;
     default: {
@@ -139,14 +181,14 @@ function IrBody({ ir, name, grammar, notes, ask }: { readonly ir: Loaded<string>
 function stageOf(fn: ShaderFunction, format: string, api: GpuApi): string {
   switch (api) {
     case "metal": {
-      const what = fn.kind === "compute" ? "compute kernel" : `${fn.kind} shader`;
+      const what = fn.kind === "compute" ? t("gpu.stage.metalCompute") : t("gpu.stage.metalShader", { kind: fn.kind });
       const reads = format.split(" · ")[1];
-      return reads ? `Metal ${what} · ${reads}` : `Metal ${what}`;
+      return reads ? `${what} · ${reads}` : what;
     }
     case "cuda":
-      return "CUDA kernel · PTX, NVIDIA's portable assembly";
+      return t("gpu.stage.cuda");
     case "hip":
-      return "HIP kernel · AMD code object metadata";
+      return t("gpu.stage.hip");
     default: {
       const unhandled: never = api;
       return unhandled;
@@ -195,10 +237,10 @@ export function ShaderView({ fn, stage, api, ir, loadedBy, onOpen, onAsk, ask, e
       )}
       <div style={{ display: "flex", flexDirection: "column", gap: 12, flexGrow: 1, flexBasis: 280, maxWidth: 340, padding: 14, borderLeftWidth: 1, borderColor: p.sel }}>
         {api === "metal" && <LoadedByCard loadedBy={loadedBy} onOpen={onOpen} />}
-        {fn.stats.length > 0 && <Bindings title="What it needs" bindings={fn.stats} mono={false} />}
-        {fn.bindings.length > 0 && <Bindings title={api === "metal" ? "Inputs" : "Parameters"} bindings={fn.bindings} mono={api !== "metal"} />}
+        {fn.stats.length > 0 && <Bindings title={t("gpu.needs")} bindings={fn.stats.map(statText)} mono={false} />}
+        {fn.bindings.length > 0 && <Bindings title={api === "metal" ? t("gpu.inputs") : t("gpu.parameters")} bindings={fn.bindings} mono={api !== "metal"} />}
         <div onClick={onAsk} style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 30, borderWidth: 1, borderColor: p.line3, borderRadius: 8, backgroundColor: p.sel, color: p.text, cursor: "pointer", hover: { opacity: 0.72 } }}>
-          <div>Ask why it's slow</div>
+          <div>{t("gpu.askSlow")}</div>
         </div>
       </div>
       </div>

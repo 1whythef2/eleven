@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
+import type { PlainId } from "../i18n";
 import { supportPath } from "../lib/support";
 
 /** A panel that can live in the right dock, the bottom dock, or an editor tab. */
@@ -13,8 +14,14 @@ export type Docks = { readonly right: readonly Tool[]; readonly bottom: readonly
 
 export const TOOLS: readonly Tool[] = ["agent", "inspector", "refs", "find", "debug", "patches", "terminal"];
 
-export const TOOL_LABEL: Readonly<Record<Tool, string>> = {
-  agent: "Agent", inspector: "Inspector", refs: "References", find: "Find", debug: "Debugger", patches: "Patches", terminal: "Terminal",
+export const TOOL_LABEL: Readonly<Record<Tool, PlainId>> = {
+  agent: "workbench.tool.agent",
+  inspector: "workbench.tool.inspector",
+  refs: "workbench.tool.refs",
+  find: "workbench.tool.find",
+  debug: "workbench.tool.debug",
+  patches: "workbench.tool.patches",
+  terminal: "workbench.tool.terminal",
 };
 
 export const TOOL_ICON: Readonly<Record<Tool, string>> = {
@@ -64,7 +71,7 @@ export function saveDocks(docks: Docks): void {
 
 /** Moves `tab` to sit before `before`, or to the end when `before` is null. */
 export function moveDockTab(order: readonly Tool[], tab: Tool, before: Tool | null): readonly Tool[] {
-  const rest = order.filter((t) => t !== tab);
+  const rest = order.filter((other) => other !== tab);
   const at = before === null ? rest.length : rest.indexOf(before);
   return at < 0 ? order : [...rest.slice(0, at), tab, ...rest.slice(at)];
 }
@@ -76,8 +83,8 @@ export function zoneOf(docks: Docks, tool: Tool): Zone | null {
 
 /** Takes `tool` out of whichever dock has it and, given a zone, puts it at the end of that one. */
 export function placeTool(docks: Docks, tool: Tool, zone: Zone | null): Docks {
-  const right = docks.right.filter((t) => t !== tool);
-  const bottom = docks.bottom.filter((t) => t !== tool);
+  const right = docks.right.filter((other) => other !== tool);
+  const bottom = docks.bottom.filter((other) => other !== tool);
   if (zone === "right") return { right: [...right, tool], bottom };
   if (zone === "bottom") return { right, bottom: [...bottom, tool] };
   return { right, bottom };
