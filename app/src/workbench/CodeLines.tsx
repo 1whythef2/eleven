@@ -1,23 +1,26 @@
 import { type EventPayload, type PublicInstance, type StyleDesc, useGpuix } from "@gpuix/react";
-import { type ReactElement, type RefObject, useEffect, useMemo, useRef } from "react";
+import { type ReactElement, type RefObject, useEffect, useMemo, useRef, useState } from "react";
 
 import { colorize, type Syntax, tokenize } from "../components/code";
 import { type Span, useSpans } from "../components/highlight";
 import { ErrorCard, Tooltip } from "../components/kit";
+import { groups, openMenu } from "../components/ContextMenu";
 import { Icon } from "../components/ui";
-import { LIGHT, type Palette, useTheme } from "../theme";
+import { LIGHT, type Palette, scrollbar, useTheme } from "../theme";
 import { useListWindow } from "../lib/useListWindow";
 import { useLoaded } from "../lib/useLoaded";
 import { showAddress, syntaxFor, useCodeLook } from "../settings/look";
-import { useSettings } from "../settings/store";
+import { type Settings, useSettings } from "../settings/store";
 import { useCommand } from "../lib/shortcuts";
 import { copyText } from "../settings/actions";
-import { goTo, isFunction, subjectMenu } from "./actions";
+import { goTo, isFunction, menuGroups, subjectMenu } from "./actions";
+import { type Cell, cellAt, chunksOf, columnAt, contentWidth, lineText, spansOf } from "./lineCells";
 import { currentMatch, FindBar, lineMatcher } from "./Find";
 import { arrowSvg, LANE_WIDTH, laneCount, type LanePiece, layoutJumps, piecesByLine } from "./arrows";
 import type { HexRow } from "./model";
 import { type Bench, useBench } from "./parts";
 import { DALVIK } from "../engine/jadx";
+import { t } from "../i18n";
 import { formatOperand, isOperandFormat, type Lookup, type Symbolic } from "../engine/operands";
 import type { LineRange } from "./state";
 import { lineAddress, splitWords, type Subject, type Token, wordAddress } from "./subject";
@@ -33,6 +36,7 @@ function isPicked(selected: Subject | null, fn: string, view: View, number: numb
   return selected.number === number || (selected.number < 0 && addr !== null && selected.addr === addr);
 }
 
+const GUTTER_WIDTH = 50;
 const SYMBOL = /(?:\b(?:DAT|FUN|LAB|PTR|sym|reloc|fcn)[._][\w.$]+)|(?:\b_[A-Za-z][\w$]{2,})|(?:\b0x[0-9a-f]{5,}\b)/gi;
 
 /** In linked view, a line matches the line picked in the other view when they name the same symbol or address. */
@@ -115,7 +119,7 @@ function Breakpoint({ addr, paused }: { readonly addr: string | null; readonly p
   const on = addr !== null && wb.s.breakpoints.has(addr);
   if (addr === null) return <div style={{ width: 22, flexShrink: 0 }} />;
   return (
-    <div onClick={() => wb.toggleBreakpoint(addr)} role="button" aria-label={`Breakpoint at ${addr}`} aria-selected={on} style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 22, flexShrink: 0, cursor: "pointer", hover: { opacity: 0.72 } }}>
+    <div onClick={() => wb.toggleBreakpoint(addr)} role="button" aria-label={t("workbench.view.code.breakpointAt", { addr })} aria-selected={on} style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 22, flexShrink: 0, cursor: "pointer", hover: { opacity: 0.72 } }}>
       {paused ? <Icon name="play" size={11} color={on ? p.error : p.data} /> : <div style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: on ? p.error : "transparent", pointerEvents: "none" }} />}
     </div>
   );
@@ -149,8 +153,9 @@ function lookupIn(bench: Bench): Lookup {
   };
 }
 
-function Line({ fn, view, text, number, focused, margin, found = "no", spans = null, bytes = null, ask = null }: { readonly fn: string; readonly view: View; readonly text: string; readonly number: number; readonly focused: boolean; readonly margin: ReactElement | null; readonly found?: Found; readonly spans?: readonly Span[] | null; readonly bytes?: string | null; readonly ask?: AskRow | null }): ReactElement {
+function Line({ fn, view, text, number, focused, margin, found = "no", spans = null, bytes = null, ask = null, onAdvance = null }: { readonly fn: string; readonly view: View; readonly text: string; readonly number: number; readonly focused: boolean; readonly margin: ReactElement | null; readonly found?: Found; readonly spans?: readonly Span[] | null; readonly bytes?: string | null; readonly ask?: AskRow | null; readonly onAdvance?: ((advance: number) => void) | null }): ReactElement {
   const { p } = useTheme();
+  const { renderer } = useGpuix();
   const bench = useBench();
   const { addrOf, nameOf, openFn, wb } = bench;
   const { settings } = useSettings();
@@ -185,34 +190,71 @@ function Line({ fn, view, text, number, focused, margin, found = "no", spans = n
     wb.select(subject(token));
   };
   const word = (text: string): Token => ({ text, addr: addrOf(text) ?? wordAddress(text) });
-  const lit = highlightedWord(wb.s.selected, fn);
-  const glow = (text: string): StyleDesc => (lit !== null && text === lit ? { backgroundColor: p.sel2, borderRadius: 3 } : {});
+  // One element for the whole line, not one per word: a word div with its own
+  // menu handlers cost about 20 elements a line, which was a third of the
+  // frame budget with the listing open. Colours ride along as `spans`, and a
+  // click finds its word by column, exact because the code font is monospace.
+  const cells: readonly Cell[] = parts.flatMap((part): readonly Cell[] => {
+    if (part.kind === "text") {
+      return splitWords(part.text).map(({ text: piece, word: isWord }) => {
+        const token = isWord ? word(piece) : null;
+        const renamed = token?.addr && !addrOf(token.text) ? wb.s.names.get(token.addr) : undefined;
+        const shown = here !== null && token?.addr === here ? `${showAddress(here, settings)}${piece.endsWith(":") ? ":" : ""}` : piece;
+        return { text: renamed ?? shown, color: renamed ? p.data : part.color, token, opens: null };
+      });
+    }
+    const target = addrOf(part.text);
+    const token = target ? { text: part.text, addr: target } : word(part.text);
+    return [{ text: target ? nameOf(target) : part.text, color: target ? p.link : p.call, token, opens: target }];
+  });
+  // Links keep an element each so they can carry a label, a tooltip and their
+  // own click; everything else merges into one. A line has one or two links,
+  // so a row costs a handful of elements instead of one per word.
+  const chunks = chunksOf(cells);
+  /** The cell under a click, by column: text width over character count is the advance, so no measuring. */
+  const cellUnder = (run: readonly Cell[], event: EventPayload): Cell | null => {
+    const id = event.elementId;
+    const box = id === undefined ? null : renderer?.getElementBounds?.(id);
+    const drawn = lineText(run);
+    if (!box) return run[0] ?? null;
+    if (drawn.length > 0 && box.width > 0) onAdvance?.(box.width / drawn.length);
+    return cellAt(run, columnAt(box, event.x ?? 0, drawn.length)) ?? run[0] ?? null;
+  };
+  const menuFor = (cell: Cell | null, event: EventPayload): void => {
+    if (cell) wb.select(subject(cell.token));
+    openMenu(event.x ?? 0, event.y ?? 0, groups(...menuGroups(bench, subject(cell?.token ?? null))));
+  };
+  const onRunClick = (run: readonly Cell[]) => (event: EventPayload): void => {
+    const cell = cellUnder(run, event);
+    if (event.modifiers?.ctrl) return menuFor(cell, event);
+    pick(cell?.token ?? null, event);
+  };
+  const onRunMenu = (run: readonly Cell[]) => (event: EventPayload): void => {
+    if (event.isRightClick) menuFor(cellUnder(run, event), event);
+  };
   const row = (
-    <div role="row" aria-label={`Line ${number}`} aria-selected={picked} style={{ display: "flex", userSelect: "text", fontFamily: look.family, fontSize: look.size, lineHeight: look.lineHeight, ...lineTint(found, picked, ranged, p), ...(paused ? { backgroundColor: p.sel2 } : {}) }}>
+    <div role="row" aria-label={t("workbench.view.line", { number })} aria-selected={picked} style={{ display: "flex", userSelect: "text", fontFamily: look.family, fontSize: look.size, lineHeight: look.lineHeight, ...lineTint(found, picked, ranged, p), ...(paused ? { backgroundColor: p.sel2 } : {}) }}>
       {view === "asm" && <Breakpoint addr={here} paused={paused} />}
-      {gutter ? <div {...subjectMenu(bench, subject(null), (event) => pick(null, event))} style={{ position: "relative", display: "flex", justifyContent: "flex-end", width: 50, flexShrink: 0, paddingRight: 16, color: picked ? p.text : p.gutter, userSelect: "none" }}>{ask?.pinned && <PinDot />}{String(number)}</div> : <div {...subjectMenu(bench, subject(null), (event) => pick(null, event))} style={{ width: 16, flexShrink: 0 }} />}
+      {gutter ? <div {...subjectMenu(bench, subject(null), (event) => pick(null, event))} style={{ position: "relative", display: "flex", justifyContent: "flex-end", width: GUTTER_WIDTH, flexShrink: 0, paddingRight: 16, color: picked ? p.text : p.gutter, userSelect: "none" }}>{ask?.pinned && <PinDot />}{String(number)}</div> : <div {...subjectMenu(bench, subject(null), (event) => pick(null, event))} style={{ width: 16, flexShrink: 0 }} />}
       {margin}
       {bytes !== null && <div style={{ width: 104, flexShrink: 0, color: p.faint, whiteSpace: "nowrap", overflow: "hidden" }}>{bytes}</div>}
       <div style={{ display: "flex", whiteSpace: "nowrap" }}>
-        {parts.length === 0 && <div {...subjectMenu(bench, subject(null), (event) => pick(null, event))}> </div>}
-        {parts.map((part, ix) => {
-          if (part.kind === "text") {
-            return splitWords(part.text).map(({ text: piece, word: isWord }, n) => {
-              const token = isWord ? word(piece) : null;
-              const renamed = token?.addr && !addrOf(token.text) ? wb.s.names.get(token.addr) : undefined;
-              const shown = here !== null && token?.addr === here ? `${showAddress(here, settings)}${piece.endsWith(":") ? ":" : ""}` : piece;
-              return <div key={`${ix}.${n}`} {...subjectMenu(bench, subject(token), (event) => pick(token, event))} style={{ color: renamed ? p.data : part.color, whiteSpace: "nowrap", ...glow(piece) }}>{renamed ?? shown}</div>;
-            });
+        {chunks.length === 0 && <div {...subjectMenu(bench, subject(null), (event) => pick(null, event))}> </div>}
+        {chunks.map((chunk, ix) => {
+          if (chunk.kind === "own") {
+            const { cell } = chunk;
+            const target = cell.opens;
+            if (!target) {
+              return <div key={ix} {...subjectMenu(bench, subject(cell.token), (event) => pick(cell.token, event))} style={{ color: cell.color, whiteSpace: "nowrap" }}>{cell.text}</div>;
+            }
+            return (
+              <Tooltip key={ix} label={t("workbench.view.code.goTo", { name: cell.text })} side="top">
+                <div {...subjectMenu(bench, subject(cell.token), () => openFn(target, false))} role="link" aria-label={t("workbench.view.open", { name: cell.text })} style={{ color: cell.color, whiteSpace: "nowrap", textDecoration: "underline", cursor: "pointer" }}>{cell.text}</div>
+              </Tooltip>
+            );
           }
-          const target = addrOf(part.text);
-          if (!target) return <div key={ix} {...subjectMenu(bench, subject(word(part.text)), (event) => pick(word(part.text), event))} style={{ color: p.call, whiteSpace: "nowrap", ...glow(part.text) }}>{part.text}</div>;
-          const token = { text: part.text, addr: target };
           return (
-            <Tooltip key={ix} label={`Go to ${nameOf(target)}`} side="top">
-              <div {...subjectMenu(bench, subject(token), () => openFn(target, false))} role="link" aria-label={`Open ${nameOf(target)}`} style={{ color: p.link, whiteSpace: "nowrap", textDecoration: "underline", cursor: "pointer", ...glow(part.text) }}>
-                {nameOf(target)}
-              </div>
-            </Tooltip>
+            <div key={ix} onClick={onRunClick(chunk.cells)} onAuxClick={onRunMenu(chunk.cells)} spans={spansOf(chunk.cells)} style={{ color: p.text3, whiteSpace: "nowrap" }}>{lineText(chunk.cells)}</div>
           );
         })}
         {comment && <div style={{ color: p.comment, whiteSpace: "nowrap" }}>{`   ; ${comment}`}</div>}
@@ -222,6 +264,20 @@ function Line({ fn, view, text, number, focused, margin, found = "no", spans = n
     </div>
   );
   return ask?.below ? <div style={{ display: "flex", flexDirection: "column" }}>{row}{ask.below}</div> : row;
+}
+
+/**
+ * The word as the line draws it: a renamed symbol under its new name, and an
+ * instruction's own address in the format the view shows. The highlight
+ * searches drawn text, so a query built from the raw token would miss.
+ */
+function drawnWord(bench: Bench, settings: Settings, selected: Subject | null, fn: string): string | null {
+  if (selected?.kind !== "line" || selected.fn !== fn) return null;
+  const token = selected.token;
+  if (!token) return null;
+  if (!token.addr) return token.text;
+  if (selected.addr && sameAddress(token.addr, selected.addr)) return showAddress(token.addr, settings);
+  return bench.nameOf(token.addr);
 }
 
 /** Jumps and selection for one function's lines, shared by the scrolling view and the whole-file listing. */
@@ -238,9 +294,15 @@ function useJumpMargin(fn: string, view: View, lines: readonly string[], lineHei
 
 /** One function's assembly without its own scrolling, for the whole-file listing. */
 export function StaticLines({ fn, lines }: { readonly fn: string; readonly lines: readonly string[] }): ReactElement {
+  const { p } = useTheme();
+  const bench = useBench();
+  const { settings } = useSettings();
   const margin = useJumpMargin(fn, "asm", lines, useCodeLook().lineHeight);
+  // The listing draws whole functions without a list of its own, so it
+  // declares the picked name's highlight the same way the scrolling view does.
+  const lit = drawnWord(bench, settings, bench.wb.s.selected, fn);
   return (
-    <div style={{ display: "flex", flexDirection: "column" }}>
+    <div {...(lit ? { highlight: { query: lit, wholeWord: true, caseSensitive: true, color: p.sel2 } } : {})} style={{ display: "flex", flexDirection: "column" }}>
       {lines.map((line, ix) => <Line key={ix} fn={fn} view="asm" text={line} number={ix + 1} focused={false} margin={margin(ix)} />)}
     </div>
   );
@@ -267,7 +329,8 @@ function Lines({ fn, view, lines, focusLine }: { readonly fn: string; readonly v
   const look = useCodeLook();
   const { lineHeight } = look;
   const { p } = useTheme();
-  const eleven = useSettings().settings.colorScheme === "Eleven";
+  const { settings } = useSettings();
+  const eleven = settings.colorScheme === "Eleven";
   const painted = useSpans(view === "pseudo" && eleven ? lines : [], p === LIGHT ? "light" : "dark");
   const shown = useListWindow(lines.length);
   const list = useScrollToPicked(fn, lines);
@@ -288,12 +351,22 @@ function Lines({ fn, view, lines, focusLine }: { readonly fn: string; readonly v
     return hex.kind === "ready" ? instructionBytes(hex.value, at, next) : "";
   };
   const found = (index: number): Found => (index === find.current ? "current" : find.matches.has(index) ? "match" : "no");
+  // The picked name lights up through one search over the list. Declaring a
+  // highlight per row instead makes the native search resolve every row
+  // separately, which took the whole view from milliseconds to seconds.
+  const lit = drawnWord(bench, settings, wb.s.selected, fn);
+  // A click measures the advance exactly; until one lands, a monospace glyph
+  // is near enough to size the rows.
+  const [advance, setAdvance] = useState(0);
+  useEffect(() => setAdvance(0), [look.family, look.size]);
+  const noteAdvance = (measured: number): void => setAdvance((now) => (Math.abs(now - measured) > 0.01 ? measured : now));
+  const wide = useMemo(() => contentWidth(lines, advance || look.size * 0.62, GUTTER_WIDTH), [lines, advance, look.size]);
   return (
     <>
       {wb.s.finding && <FindBar count={find.count} problem={find.problem} />}
-      <virtual-list ref={list} itemCount={lines.length} windowStart={shown.start} estimatedItemHeight={lineHeight} onVisibleRange={shown.onVisibleRange} style={{ flexGrow: 1, minHeight: 0, paddingTop: 10, paddingBottom: 28, fontFamily: look.family, fontSize: look.size, lineHeight }}>
+      <virtual-list ref={list} itemCount={lines.length} windowStart={shown.start} estimatedItemHeight={lineHeight} onVisibleRange={shown.onVisibleRange} contentWidth={wide} {...(lit ? { highlight: { query: lit, wholeWord: true, caseSensitive: true, color: p.sel2 } } : {})} style={{ flexGrow: 1, minHeight: 0, overflowX: "scroll", paddingTop: 10, paddingBottom: 28, fontFamily: look.family, fontSize: look.size, lineHeight, ...scrollbar(p) }}>
         {lines.slice(shown.start, shown.end).map((line, ix) => (
-          <Line key={shown.start + ix} fn={fn} view={view} text={line} number={shown.start + ix + 1} focused={shown.start + ix === focusLine} margin={margin(shown.start + ix)} found={found(shown.start + ix)} spans={painted?.[shown.start + ix] ?? null} bytes={bytesOf(shown.start + ix)} ask={askRow(shown.start + ix + 1)} />
+          <Line key={shown.start + ix} fn={fn} view={view} text={line} number={shown.start + ix + 1} focused={shown.start + ix === focusLine} margin={margin(shown.start + ix)} found={found(shown.start + ix)} spans={painted?.[shown.start + ix] ?? null} bytes={bytesOf(shown.start + ix)} ask={askRow(shown.start + ix + 1)} onAdvance={noteAdvance} />
         ))}
       </virtual-list>
     </>
@@ -301,12 +374,12 @@ function Lines({ fn, view, lines, focusLine }: { readonly fn: string; readonly v
 }
 
 /** A function boundary in the listing: its label, or a step to the function before or after it. */
-function Boundary({ fn, lead }: { readonly fn: string; readonly lead: string }): ReactElement {
+function Boundary({ fn, lead }: { readonly fn: string; readonly lead: "\u2191" | "\u2193" | "" }): ReactElement {
   const { p } = useTheme();
   const { nameOf, openFn } = useBench();
   const look = useCodeLook();
   return (
-    <div onClick={() => openFn(fn, false)} role="button" aria-label={`${lead} ${nameOf(fn)}`} style={{ display: "flex", gap: 10, flexShrink: 0, paddingTop: 4, paddingBottom: 4, paddingLeft: 22, fontFamily: look.family, fontSize: look.size, lineHeight: look.lineHeight, color: p.faint, cursor: "pointer", hover: { opacity: 0.72 } }}>
+    <div onClick={() => openFn(fn, false)} role="button" aria-label={lead === "\u2191" ? t("workbench.view.code.previous", { name: nameOf(fn) }) : lead === "\u2193" ? t("workbench.view.code.next", { name: nameOf(fn) }) : nameOf(fn)} style={{ display: "flex", gap: 10, flexShrink: 0, paddingTop: 4, paddingBottom: 4, paddingLeft: 22, fontFamily: look.family, fontSize: look.size, lineHeight: look.lineHeight, color: p.faint, cursor: "pointer", hover: { opacity: 0.72 } }}>
       <div>{lead}</div>
       <div style={{ color: p.call }}>{`${nameOf(fn)}:`}</div>
       <div>{fn}</div>
