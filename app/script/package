@@ -53,7 +53,12 @@ if [ "$identity" != "-" ] && [ "$profile" != "skip" ]; then
   else
     xcrun notarytool submit "$zip" --keychain-profile "$profile" --wait
   fi
-  xcrun stapler staple "$out"
+  # Apple's ticket server drops connections now and then, so stapling gets a few tries.
+  for attempt in 1 2 3 4 5; do
+    xcrun stapler staple "$out" && break
+    [ "$attempt" = 5 ] && exit 68
+    sleep $((attempt * 15))
+  done
   xcrun stapler validate "$out"
   spctl --assess --type execute --verbose=2 "$out"
   rm -f "$zip"
