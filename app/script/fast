@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Runs Eleven the way a release does: compiled, minified, bytecode, production React.
+# Resources link back to this checkout so nothing is copied. Arguments go to the app.
+set -euo pipefail
+
+app_dir="$(cd "$(dirname "$0")/.." && pwd)"
+repo="$(cd "$app_dir/.." && pwd)"
+out="$app_dir/build/fast"
+res="$out/Resources"
+
+mkdir -p "$out/bin" "$res"
+(cd "$app_dir" && bun build --compile --minify --bytecode --format=esm --define process.env.NODE_ENV='"production"' src/bundled.ts --outfile "$out/bin/eleven" > /dev/null)
+
+for dir in assets skills locales vendor; do ln -sfn "$app_dir/$dir" "$res/$dir"; done
+ln -sf "$(ls "$app_dir"/node_modules/@gpuix/native-*/gpuix-native.*.node | head -1)" "$res/gpuix-native.node"
+rea_src="${ELEVEN_REA_SOURCE:-$repo/../rea}"
+[ -f "$rea_src/scripts/rea.mjs" ] && ln -sfn "$rea_src" "$res/rea"
+[ -x "$app_dir/build/rizin/bin/rizin" ] && ln -sfn "$app_dir/build/rizin" "$res/rizin"
+if command -v node > /dev/null; then
+  mkdir -p "$res/node/bin"
+  ln -sf "$(node -p 'process.execPath')" "$res/node/bin/node"
+fi
+
+NODE_ENV=production exec "$out/bin/eleven" "$@"

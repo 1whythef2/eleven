@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "bun --hot src/main.tsx",
     "start": "bun src/main.tsx",
-    "fast": "NODE_ENV=production bun src/main.tsx",
+    "fast": "script/fast",
     "typecheck": "tsc --noEmit",
     "bundle": "script/bundle-macos"
   },
