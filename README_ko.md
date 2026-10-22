@@ -45,7 +45,7 @@ Eleven은 Apple Silicon에서 macOS 14 이상에서 실행됩니다.
 curl -fsSL https://raw.githubusercontent.com/Zfinix/eleven/main/install.sh | sh
 ```
 
-이 명령은 `Eleven.app`을 `/Applications`에 설치합니다. 빌드는 아직 공증되지 않았으므로, 설치 프로그램이 다운로드 격리 속성을 대신 해제해 줍니다.
+이 명령은 `Eleven.app`을 `/Applications`에 설치합니다. 빌드는 서명되어 있으며 Apple의 공증을 받았습니다.
 
 Eleven에는 다음도 필요합니다.
 

@@ -45,7 +45,7 @@ Eleven läuft auf macOS 14 oder neuer auf Apple Silicon.
 curl -fsSL https://raw.githubusercontent.com/Zfinix/eleven/main/install.sh | sh
 ```
 
-Damit wird `Eleven.app` nach `/Applications` installiert. Builds sind noch nicht notarisiert, deshalb entfernt der Installer für dich die Download-Quarantäne.
+Damit wird `Eleven.app` nach `/Applications` installiert. Builds sind signiert und von Apple notarisiert.
 
 Eleven braucht außerdem:
 

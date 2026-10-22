@@ -45,7 +45,7 @@ Eleven 在搭载 Apple Silicon 的 macOS 14 或更高版本上运行。
 curl -fsSL https://raw.githubusercontent.com/Zfinix/eleven/main/install.sh | sh
 ```
 
-这会把 `Eleven.app` 安装到 `/Applications`。构建版本尚未公证，因此安装程序会替你清除下载隔离标记。
+这会把 `Eleven.app` 安装到 `/Applications`。构建版本已签名并通过 Apple 公证。
 
 Eleven 还需要：
 

@@ -45,7 +45,7 @@ Eleven працює на macOS 14 або новішої версії на Apple 
 curl -fsSL https://raw.githubusercontent.com/Zfinix/eleven/main/install.sh | sh
 ```
 
-Це встановлює `Eleven.app` у `/Applications`. Збірки ще не нотаризовані, тому інсталятор сам знімає карантин завантаження.
+Це встановлює `Eleven.app` у `/Applications`. Збірки підписані та нотаризовані Apple.
 
 Eleven також потребує:
 

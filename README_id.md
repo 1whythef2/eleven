@@ -45,7 +45,7 @@ Eleven berjalan di macOS 14 atau lebih baru pada Apple Silicon.
 curl -fsSL https://raw.githubusercontent.com/Zfinix/eleven/main/install.sh | sh
 ```
 
-Perintah ini memasang `Eleven.app` ke `/Applications`. Build-nya belum dinotarisasi, jadi installer membersihkan karantina unduhan untuk Anda.
+Perintah ini memasang `Eleven.app` ke `/Applications`. Build-nya sudah ditandatangani dan dinotarisasi oleh Apple.
 
 Eleven juga memerlukan:
 

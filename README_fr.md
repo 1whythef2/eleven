@@ -45,7 +45,7 @@ Eleven fonctionne sur macOS 14 ou version ultérieure sur Apple Silicon.
 curl -fsSL https://raw.githubusercontent.com/Zfinix/eleven/main/install.sh | sh
 ```
 
-Cela installe `Eleven.app` dans `/Applications`. Les versions ne sont pas encore notariées, l'installeur lève donc lui-même la quarantaine de téléchargement.
+Cela installe `Eleven.app` dans `/Applications`. Les versions sont signées et notariées par Apple.
 
 Eleven a aussi besoin de :
 

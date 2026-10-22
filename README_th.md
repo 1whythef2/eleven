@@ -45,7 +45,7 @@ Eleven ทำงานบน macOS 14 ขึ้นไปบน Apple Silicon
 curl -fsSL https://raw.githubusercontent.com/Zfinix/eleven/main/install.sh | sh
 ```
 
-คำสั่งนี้ติดตั้ง `Eleven.app` ไว้ใน `/Applications` บิลด์ยังไม่ได้ทำ notarization ตัวติดตั้งจึงล้าง quarantine ของไฟล์ดาวน์โหลดให้
+คำสั่งนี้ติดตั้ง `Eleven.app` ไว้ใน `/Applications` บิลด์ลงนามและผ่าน notarization ของ Apple แล้ว
 
 Eleven ยังต้องมี:
 

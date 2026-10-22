@@ -45,7 +45,7 @@ Eleven chạy trên macOS 14 trở lên trên Apple Silicon.
 curl -fsSL https://raw.githubusercontent.com/Zfinix/eleven/main/install.sh | sh
 ```
 
-Lệnh này cài `Eleven.app` vào `/Applications`. Các bản build chưa được notarize, nên trình cài đặt tự xóa thuộc tính quarantine khi tải về cho bạn.
+Lệnh này cài `Eleven.app` vào `/Applications`. Các bản build đã được ký và Apple notarize.
 
 Eleven cũng cần:
 

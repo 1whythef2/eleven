@@ -45,7 +45,7 @@ Eleven روی macOS 14 یا بالاتر روی Apple Silicon اجرا می‌ش
 curl -fsSL https://raw.githubusercontent.com/Zfinix/eleven/main/install.sh | sh
 ```
 
-این فرمان `Eleven.app` را در `/Applications` نصب می‌کند. بیلدها هنوز نوتاریزه نشده‌اند، بنابراین نصب‌کننده قرنطینهٔ دانلود را برای شما پاک می‌کند.
+این فرمان `Eleven.app` را در `/Applications` نصب می‌کند. بیلدها امضا شده و توسط اپل نوتاریزه شده‌اند.
 
 Eleven همچنین به این‌ها نیاز دارد:
 

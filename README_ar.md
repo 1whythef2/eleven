@@ -45,7 +45,7 @@ Eleven تطبيق هندسة عكسية مبني حول الوكلاء. ألقِ
 curl -fsSL https://raw.githubusercontent.com/Zfinix/eleven/main/install.sh | sh
 ```
 
-يثبّت هذا الأمر `Eleven.app` في `/Applications`. الإصدارات ليست موقّعة بعد، لذا يزيل المثبّت حجر التنزيل عنك.
+يثبّت هذا الأمر `Eleven.app` في `/Applications`. الإصدارات موقّعة وموثّقة من Apple.
 
 يحتاج Eleven أيضًا إلى:
 

@@ -45,7 +45,7 @@ Eleven, Apple Silicon üzerinde macOS 14 veya üzerinde çalışır.
 curl -fsSL https://raw.githubusercontent.com/Zfinix/eleven/main/install.sh | sh
 ```
 
-Bu komut `Eleven.app` uygulamasını `/Applications` içine kurar. Derlemeler henüz noter onaylı değil, bu yüzden kurucu indirme karantinasını sizin için kaldırır.
+Bu komut `Eleven.app` uygulamasını `/Applications` içine kurar. Derlemeler imzalı ve Apple tarafından noter onaylıdır.
 
 Eleven ayrıca şunlara ihtiyaç duyar:
 
